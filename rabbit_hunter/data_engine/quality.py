@@ -20,7 +20,7 @@ def check_ohlcv(df: pd.DataFrame, interval: str) -> QualityReport:
     step = _INTERVAL_MS[interval]
 
     # 排序
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    df = df.sort_values("timestamp", kind="mergesort").reset_index(drop=True)
 
     # 重复时间戳
     dup_mask = df["timestamp"].duplicated(keep="first")
