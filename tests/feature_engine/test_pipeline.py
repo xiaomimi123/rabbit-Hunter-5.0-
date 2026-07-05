@@ -81,3 +81,28 @@ def test_baseline_snapshot_stable():
     for c in ["ema20", "ema60", "adx", "rsi_14", "atr_14"]:
         np.testing.assert_allclose(actual[c].to_numpy(), expected[c].to_numpy(), rtol=1e-9, atol=1e-9, equal_nan=True)
     assert (actual["regime"].to_numpy() == expected["regime"].to_numpy()).all()
+
+
+def test_build_features_with_confirm_populates_cross_timeframe():
+    """Passing a confirm 15m DataFrame must populate ema20_1h_on_15m / adx_1h_on_15m
+    with the 1H values aligned via merge_asof(direction='backward'), not left as NaN."""
+    raw_1h = _mk_raw(n=400)
+    # Build a 15m confirm frame with timestamps aligned on hour boundaries (same grid as 1H raw)
+    # so merge_asof(backward) finds an exact hit for every row → cross-timeframe fields must be finite.
+    confirm_15m = raw_1h.copy()
+
+    feats = build_features(raw_1h, confirm=confirm_15m)
+
+    # These columns must exist AND for the last row must be finite (not NaN),
+    # AND must equal the corresponding raw 1H ema20 / adx values (backward merge on equal timestamps).
+    assert "ema20_1h_on_15m" in feats.columns
+    assert "adx_1h_on_15m" in feats.columns
+    last_ema20 = feats["ema20"].iloc[-1]
+    last_adx = feats["adx"].iloc[-1]
+    last_ema20_1h_on_15m = feats["ema20_1h_on_15m"].iloc[-1]
+    last_adx_1h_on_15m = feats["adx_1h_on_15m"].iloc[-1]
+    assert np.isfinite(last_ema20_1h_on_15m), "cross-timeframe ema20 should not be NaN when confirm is given"
+    assert np.isfinite(last_adx_1h_on_15m), "cross-timeframe adx should not be NaN when confirm is given"
+    # With aligned timestamps and same underlying data, backward-merge should match the exact 1H value
+    assert np.isclose(last_ema20_1h_on_15m, last_ema20, equal_nan=True)
+    assert np.isclose(last_adx_1h_on_15m, last_adx, equal_nan=True)
