@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Rabbit Hunter runtime data (不入库)
+data/
+snapshots/
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

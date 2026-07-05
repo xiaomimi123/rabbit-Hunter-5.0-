@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+  rabbit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../data:/app/data
+      - ../snapshots:/app/snapshots
+      - ../reports:/app/reports
+      - ../configs:/app/configs
+      - ../rabbit_hunter:/app/rabbit_hunter
+      - ../tests:/app/tests
+    working_dir: /app
+    tty: true
