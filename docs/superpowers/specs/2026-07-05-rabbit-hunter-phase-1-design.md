@@ -130,7 +130,7 @@ rabbit-hunter/
 | 类别 | 库 | 用途 |
 |---|---|---|
 | 数据 | `pandas`, `pyarrow`, `duckdb` | K 线 / 特征 / 快照存取 |
-| 指标 | `pandas-ta` | EMA/RSI/ADX/BB/ATR（纯 Python，Docker 友好） |
+| 指标 | `pandas-ta-classic` | EMA/RSI/ADX/BB/ATR（纯 Python，Docker 友好；active fork of pandas-ta, API 兼容 Python 3.11+） |
 | 交易所 | `ccxt` | OKX 公共历史行情（无 Key） |
 | 配置 | `pydantic`, `pyyaml` | 类型校验 |
 | 日志 | `structlog` | 结构化日志 |
@@ -177,7 +177,7 @@ OKX 公共 REST ─→ okx_fetcher ─→ quality ─→ storage (Parquet 分区
 
 | 文件 | 内容 |
 |---|---|
-| `indicators.py` | pandas-ta 封装：EMA(20/60/200)、ADX、RSI、BB、ATR、ATR% |
+| `indicators.py` | pandas-ta-classic 封装：EMA(20/60/200)、ADX、RSI、BB、ATR、ATR% |
 | `price_action.py` | K 线形态、S/R、市场结构 |
 | `regime.py` | 自动打行情标签 `regime ∈ {trending, ranging, high_vol, low_vol}` |
 | `pipeline.py` | 调度器：K 线 → 特征 DataFrame（含跨周期 1H↔15m 对齐） |
