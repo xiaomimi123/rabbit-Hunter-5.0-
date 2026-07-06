@@ -234,6 +234,213 @@ def _svg_overlay_equity_curves(metrics: list[ReportMetrics],
     )
 
 
+def _per_symbol_rows(metrics: list[ReportMetrics]) -> list[dict]:
+    """For each (symbol, report) combination, compute WR + total PnL + N."""
+    rows: list[dict] = []
+    all_symbols: set[str] = set()
+    per: dict[str, dict[str, dict]] = {m.label: {} for m in metrics}
+    for m in metrics:
+        if m.trades_df.empty or "symbol" not in m.trades_df.columns:
+            continue
+        pnl_col = ("pnl_after_fees" if "pnl_after_fees" in m.trades_df.columns
+                   else "pnl")
+        grp = m.trades_df.groupby("symbol")
+        for sym, sub in grp:
+            all_symbols.add(sym)
+            pnl = sub[pnl_col]
+            per[m.label][sym] = {
+                "n": int(len(sub)),
+                "wr": float((pnl > 0).mean()),
+                "total": float(pnl.sum()),
+                "avg": float(pnl.mean()),
+            }
+    for sym in sorted(all_symbols):
+        row: dict = {"symbol": sym}
+        for m in metrics:
+            entry = per[m.label].get(sym)
+            row[f"{m.label}_n"] = entry["n"] if entry else 0
+            row[f"{m.label}_wr"] = entry["wr"] if entry else 0.0
+            row[f"{m.label}_pnl"] = entry["total"] if entry else 0.0
+        rows.append(row)
+    return rows
+
+
+def _per_symbol_table(metrics: list[ReportMetrics]) -> str:
+    rows = _per_symbol_rows(metrics)
+    if not rows:
+        return '<p class="muted">no symbol column in trades</p>'
+    # Column headers: symbol + (N, WR, PnL) per report
+    head_cells = "<th>Symbol</th>"
+    for m in metrics:
+        label = html.escape(m.label)
+        head_cells += (
+            f'<th data-key="{label}_n">N</th>'
+            f'<th data-key="{label}_wr">WR</th>'
+            f'<th data-key="{label}_pnl">{label} PnL</th>'
+        )
+    body: list[str] = []
+    for row in rows:
+        cells = [f'<td class="left">{html.escape(row["symbol"])}</td>']
+        for m in metrics:
+            n = row[f"{m.label}_n"]
+            wr = row[f"{m.label}_wr"]
+            pnl = row[f"{m.label}_pnl"]
+            wr_color = "#0a7d34" if wr >= 0.5 else "#c62828" if n else "#999"
+            pnl_color = "#0a7d34" if pnl > 0 else "#c62828" if pnl < 0 else "#999"
+            cells.append(f'<td data-val="{n}">{n}</td>')
+            cells.append(
+                f'<td data-val="{wr}" style="color:{wr_color}">'
+                f'{wr*100:.1f}%</td>' if n else '<td>—</td>'
+            )
+            cells.append(
+                f'<td data-val="{pnl}" style="color:{pnl_color}">'
+                f'{pnl:+,.2f}</td>' if n else '<td>—</td>'
+            )
+        body.append(f"<tr>{''.join(cells)}</tr>")
+    return f'''<table class="sortable">
+  <thead><tr>{head_cells}</tr></thead>
+  <tbody>{"".join(body)}</tbody>
+</table>'''
+
+
+def _trades_explorer(metrics: list[ReportMetrics], max_rows: int = 200) -> str:
+    """Show a filterable, sortable table of individual trades. Combined
+    across reports with a 'report' column so a user can quickly slice by
+    (report × symbol × side × exit_reason)."""
+    frames: list[pd.DataFrame] = []
+    for m in metrics:
+        if m.trades_df.empty:
+            continue
+        pnl_col = ("pnl_after_fees" if "pnl_after_fees" in m.trades_df.columns
+                   else "pnl")
+        f = m.trades_df.copy()
+        f["report"] = m.label
+        f["_pnl"] = f[pnl_col]
+        want = ["report", "symbol", "side", "_pnl", "exit_reason"]
+        f = f[[c for c in want if c in f.columns]]
+        frames.append(f)
+    if not frames:
+        return '<p class="muted">no trade data</p>'
+    df = pd.concat(frames, ignore_index=True)
+    # Take top N by |pnl| — most-interesting trades first
+    df = df.reindex(df["_pnl"].abs().sort_values(ascending=False).index) \
+           .head(max_rows).reset_index(drop=True)
+
+    filters: dict[str, list[str]] = {
+        "report": sorted(df["report"].unique().tolist()),
+    }
+    for opt in ("symbol", "side", "exit_reason"):
+        if opt in df.columns:
+            filters[opt] = sorted(df[opt].dropna().astype(str).unique().tolist())
+
+    filter_html = ""
+    for col, options in filters.items():
+        opt_html = "".join(f'<option value="{html.escape(o)}">{html.escape(o)}</option>'
+                            for o in options)
+        filter_html += (
+            f'<label>{col} '
+            f'<select data-filter="{col}"><option value="">all</option>'
+            f'{opt_html}</select></label> '
+        )
+
+    head_cells = ""
+    cols = list(df.columns)
+    for c in cols:
+        display = "PnL" if c == "_pnl" else c
+        head_cells += f'<th data-key="{c}">{display}</th>'
+
+    body: list[str] = []
+    for _, r in df.iterrows():
+        tds = []
+        for c in cols:
+            v = r[c]
+            if c == "_pnl":
+                color = "#0a7d34" if v > 0 else "#c62828" if v < 0 else "#999"
+                tds.append(
+                    f'<td data-val="{v}" style="color:{color};font-weight:600">'
+                    f'{v:+,.2f}</td>'
+                )
+            else:
+                s = str(v)
+                tds.append(f'<td data-val="{html.escape(s)}">{html.escape(s)}</td>')
+        body.append(f'<tr data-report="{html.escape(str(r.get("report", "")))}" '
+                    f'data-symbol="{html.escape(str(r.get("symbol", "")))}" '
+                    f'data-side="{html.escape(str(r.get("side", "")))}" '
+                    f'data-exit_reason="{html.escape(str(r.get("exit_reason", "")))}">'
+                    f'{"".join(tds)}</tr>')
+
+    return f'''
+<div class="filters">{filter_html}<span class="muted" id="visible-count"></span></div>
+<div style="overflow-x:auto">
+<table class="sortable filterable">
+  <thead><tr>{head_cells}</tr></thead>
+  <tbody>{"".join(body)}</tbody>
+</table>
+</div>
+<p class="muted">Top {max_rows} trades by |PnL| across all reports. Click column headers to sort; use filters above to slice.</p>
+'''
+
+
+_INTERACTIVE_JS = """
+(function(){
+  // ----- Sorting -----
+  function makeSortable(table){
+    var headers = table.tHead.rows[0].cells;
+    for (var i = 0; i < headers.length; i++) {
+      (function(col){
+        headers[col].style.cursor = 'pointer';
+        headers[col].addEventListener('click', function(){
+          var tbody = table.tBodies[0];
+          var rows = Array.prototype.slice.call(tbody.rows);
+          var asc = table.getAttribute('data-sort-col') !== String(col)
+                    || table.getAttribute('data-sort-dir') !== 'asc';
+          rows.sort(function(a,b){
+            var va = a.cells[col].getAttribute('data-val');
+            var vb = b.cells[col].getAttribute('data-val');
+            if (va === null) va = a.cells[col].textContent.trim();
+            if (vb === null) vb = b.cells[col].textContent.trim();
+            var na = parseFloat(va), nb = parseFloat(vb);
+            if (!isNaN(na) && !isNaN(nb)) { return asc ? na - nb : nb - na; }
+            return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+          });
+          rows.forEach(function(r){ tbody.appendChild(r); });
+          table.setAttribute('data-sort-col', col);
+          table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
+        });
+      })(i);
+    }
+  }
+  document.querySelectorAll('table.sortable').forEach(makeSortable);
+
+  // ----- Filtering -----
+  function applyFilters(table){
+    var selects = document.querySelectorAll('.filters select[data-filter]');
+    var visible = 0, total = 0;
+    var rows = table.tBodies[0].rows;
+    for (var i = 0; i < rows.length; i++) {
+      total++;
+      var show = true;
+      selects.forEach(function(sel){
+        var col = sel.getAttribute('data-filter');
+        var v = sel.value;
+        if (v && rows[i].getAttribute('data-' + col) !== v) show = false;
+      });
+      rows[i].style.display = show ? '' : 'none';
+      if (show) visible++;
+    }
+    var el = document.getElementById('visible-count');
+    if (el) el.textContent = 'showing ' + visible + ' / ' + total;
+  }
+  document.querySelectorAll('table.filterable').forEach(function(table){
+    document.querySelectorAll('.filters select[data-filter]').forEach(function(sel){
+      sel.addEventListener('change', function(){ applyFilters(table); });
+    });
+    applyFilters(table);
+  });
+})();
+"""
+
+
 def render_html(metrics: list[ReportMetrics]) -> str:
     header_cells = "".join(f"<th>{html.escape(m.label)}</th>" for m in metrics)
     if len(metrics) == 2:
@@ -261,6 +468,8 @@ def render_html(metrics: list[ReportMetrics]) -> str:
         rows_html.append(f"<tr><th>{label}</th>{cells}</tr>")
 
     curve = _svg_overlay_equity_curves(metrics)
+    per_symbol = _per_symbol_table(metrics)
+    trades_explorer = _trades_explorer(metrics)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     labels_joined = html.escape(" vs ".join(m.label for m in metrics))
     path_list = "<br>".join(
@@ -268,6 +477,7 @@ def render_html(metrics: list[ReportMetrics]) -> str:
         for m in metrics
     )
 
+    js_block = f'<script>{_INTERACTIVE_JS}</script>'
     return f'''<!doctype html>
 <html lang="en">
 <head>
@@ -292,6 +502,15 @@ def render_html(metrics: list[ReportMetrics]) -> str:
   th {{ background: #fafafa; font-weight: 600; color: #444; font-size: 12px;
         text-transform: uppercase; letter-spacing: 0.05em; }}
   code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; }}
+  td.left {{ text-align: left; }}
+  .muted {{ color: #999; }}
+  .filters {{ margin-bottom: 12px; font-size: 13px; color: #444; }}
+  .filters label {{ margin-right: 12px; display: inline-block; }}
+  .filters select {{ padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px;
+                     font-size: 13px; background: #fff; }}
+  table.sortable th {{ cursor: pointer; user-select: none; }}
+  table.sortable th:hover {{ background: #eef2f7; }}
+  table.sortable th[data-key]::after {{ content: " ⇅"; opacity: 0.4; font-size: 10px; }}
 </style>
 </head>
 <body>
@@ -315,7 +534,16 @@ def render_html(metrics: list[ReportMetrics]) -> str:
   <h2>Cumulative PnL overlay</h2>
   {curve}
 </section>
+<section>
+  <h2>Per-symbol breakdown</h2>
+  {per_symbol}
+</section>
+<section>
+  <h2>Trades explorer</h2>
+  {trades_explorer}
+</section>
 </main>
+{js_block}
 </body>
 </html>'''
 

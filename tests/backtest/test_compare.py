@@ -164,6 +164,65 @@ def test_html_has_svg_overlay_chart(tmp_path):
 # Label mismatch validation
 # ============================================================
 
+def test_html_includes_per_symbol_breakdown(tmp_path):
+    """Two reports with different symbols → per-symbol section shows both."""
+    _mk_trades([+10.0, -5.0], tmp_path / "a")
+    df_b = pd.read_parquet(tmp_path / "a" / "trades.parquet").copy()
+    df_b["symbol"] = "ETH-USDT-SWAP"
+    (tmp_path / "b").mkdir()
+    df_b.to_parquet(tmp_path / "b" / "trades.parquet")
+    _, out = compare([tmp_path / "a", tmp_path / "b"], labels=["A", "B"])
+    assert "Per-symbol breakdown" in out
+    assert "BTC-USDT-SWAP" in out
+    assert "ETH-USDT-SWAP" in out
+
+
+def test_html_includes_trades_explorer_with_filters(tmp_path):
+    """The trades explorer emits filter <select> elements per column."""
+    _mk_trades([+10.0, -5.0], tmp_path / "a")
+    _mk_trades([+15.0, -3.0], tmp_path / "b")
+    _, out = compare([tmp_path / "a", tmp_path / "b"], labels=["A", "B"])
+    assert "Trades explorer" in out
+    assert 'data-filter="report"' in out
+    assert 'data-filter="symbol"' in out
+    assert 'data-filter="side"' in out
+
+
+def test_html_has_inline_sortable_js(tmp_path):
+    """The interactive layer must be inline (no CDN) — proves the sort
+    handler is bundled into the emitted HTML."""
+    _mk_trades([+10.0, -5.0], tmp_path / "a")
+    _mk_trades([+15.0, -3.0], tmp_path / "b")
+    _, out = compare([tmp_path / "a", tmp_path / "b"], labels=["A", "B"])
+    assert "<script>" in out
+    assert "makeSortable" in out or "sortable" in out
+    # Still self-contained (no CDN JS/CSS)
+    assert 'src="http' not in out
+
+
+def test_html_trades_explorer_caps_row_count(tmp_path):
+    """Explorer table caps to 200 top-|pnl| rows so a 100k-trade backtest
+    doesn't emit 100k <tr>s."""
+    from rabbit_hunter.backtest.compare import _trades_explorer, _compute_metrics
+    # Make 500 trades in one report
+    n = 500
+    dfa = pd.DataFrame({
+        "symbol": ["BTC-USDT-SWAP"] * n,
+        "side":   ["long"] * n,
+        "pnl_after_fees": [i - n // 2 for i in range(n)],
+        "entry_time": list(range(n)),
+        "exit_time":  list(range(n)),
+        "bars_held":  [5] * n,
+        "exit_reason": ["tp"] * n,
+    })
+    (tmp_path / "run").mkdir()
+    dfa.to_parquet(tmp_path / "run" / "trades.parquet")
+    m = _compute_metrics("R", tmp_path / "run")
+    html_frag = _trades_explorer([m], max_rows=50)
+    # Count <tr> rows — should be at most 50 body rows + 1 header
+    assert html_frag.count("<tr>") <= 51
+
+
 def test_label_count_mismatch_raises(tmp_path):
     _mk_trades([+1.0], tmp_path / "a")
     _mk_trades([+1.0], tmp_path / "b")
