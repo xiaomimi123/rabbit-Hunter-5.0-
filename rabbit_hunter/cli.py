@@ -420,5 +420,22 @@ def shadow_status(
             typer.echo(f"  {sym}: {dt}")
 
 
+@shadow_app.command("dashboard")
+def shadow_dashboard(
+    state_dir: Path = typer.Option(Path("shadows"), help="State root to render"),
+    out: Path = typer.Option(Path("shadow_dashboard.html"),
+                             help="Path to write the HTML file"),
+):
+    """Render a self-contained HTML dashboard from the shadow state.
+
+    Reads state/ledger.pkl + state/metrics_history.parquet + recent daily
+    snapshots.parquet and emits ONE HTML file (no external CSS/JS/CDN).
+    Open with `open <path>` locally, or scp off a server.
+    """
+    from rabbit_hunter.shadow.dashboard import write_dashboard
+    p = write_dashboard(state_dir=state_dir, out_path=out)
+    typer.echo(f"dashboard: {p}")
+
+
 if __name__ == "__main__":
     app()

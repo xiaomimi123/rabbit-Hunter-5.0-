@@ -50,6 +50,7 @@ from rabbit_hunter.data_engine.okx_fetcher import (
 from rabbit_hunter.data_engine.binance_funding import fetch_funding_rate_history_binance
 from rabbit_hunter.feature_engine.pipeline import build_features
 from rabbit_hunter.observability.logger import get_logger
+from rabbit_hunter.shadow.metrics import ShadowMetrics, AlertThresholds
 
 
 @dataclass
@@ -61,6 +62,8 @@ class ShadowConfig:
     lookback_bars: int = 600
     # State root where ledger + last-seen + snapshot files live.
     state_dir: Path = field(default_factory=lambda: Path("shadows"))
+    # Alert thresholds for the metrics collector. Override per-deployment.
+    alert_thresholds: AlertThresholds = field(default_factory=AlertThresholds)
 
 
 class ShadowRunner:
@@ -114,6 +117,13 @@ class ShadowRunner:
 
         # Graceful shutdown flag
         self._stop = False
+
+        # v0.1.4 metrics collector — snapshot equity/positions/PnL/alerts
+        # at the end of every tick.
+        self.metrics = ShadowMetrics(
+            thresholds=self.shadow_cfg.alert_thresholds,
+            state_dir=self.state_dir,
+        )
 
     # ------------------------------------------------------------------
     # Persistence
@@ -490,6 +500,32 @@ class ShadowRunner:
                           equity=self.ledger.equity,
                           open_positions=len(self.ledger.open_positions))
 
+        # Metrics snapshot fires every tick, even when no new bar arrived —
+        # stale-data alerts depend on that heartbeat.
+        prices = {
+            sym: float(df.iloc[-1]["close"])
+            for sym, df in self._latest_features.items() if not df.empty
+        }
+        snap = self.metrics.snapshot(
+            ledger=self.ledger, prices=prices, last_seen_ts=self.last_seen_ts,
+        )
+        self.metrics.append_history(snap)
+        # Log at INFO for the ops feed; alerts get their own WARNING lines
+        # so filters like `grep -w metrics_alert` catch them cleanly.
+        self.log.info(
+            "metrics",
+            equity=snap.equity,
+            pnl=snap.total_pnl,
+            pnl_pct=snap.pnl_pct,
+            drawdown_pct=snap.drawdown_from_peak_pct,
+            open=snap.open_positions,
+            wr=snap.winrate,
+            closed=snap.total_closed_trades,
+            alerts=snap.alerts,
+        )
+        for a in snap.alerts:
+            self.log.warning("metrics_alert", detail=a)
+
     def _install_signal_handlers(self):
         def handler(signum, frame):
             self.log.info("shadow_stop_requested", signal=signum)
@@ -508,8 +544,10 @@ class ShadowRunner:
             while not self._stop:
                 try:
                     self.tick()
+                    self.metrics.note_tick_success()
                 except Exception as e:
                     # Never exit the loop on an unexpected error — log and continue
+                    self.metrics.note_tick_error()
                     self.log.error("tick_error", error=str(e), type=type(e).__name__)
                 time.sleep(self.shadow_cfg.poll_interval_seconds)
         finally:

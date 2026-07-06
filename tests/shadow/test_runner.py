@@ -157,3 +157,27 @@ def test_shadow_tick_skips_early_warmup_bars(tmp_path):
     # Nothing processed — snapshot dir empty
     day_dirs = [d for d in (tmp_path / "s").iterdir() if d.is_dir() and d.name != "state"]
     assert day_dirs == []
+
+
+def test_shadow_tick_appends_metrics_history(tmp_path):
+    """Every tick — even one with no new bars — writes a metrics row so
+    the dashboard has a live heartbeat."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies, ShadowConfig(state_dir=tmp_path / "s"))
+
+    feats = _mk_feats(n=250)
+    # Pre-mark all bars as seen so tick() is a no-op on decisions but
+    # still needs to emit metrics.
+    latest_ts = int(feats.iloc[-1]["timestamp"])
+    r.last_seen_ts = {sym: latest_ts + 1 for sym in cfg.data.symbols}
+
+    with patch.object(r, "_fetch_recent_features", return_value=feats):
+        r.tick()
+        r.tick()
+
+    hist_path = tmp_path / "s" / "state" / "metrics_history.parquet"
+    assert hist_path.exists()
+    hist = pd.read_parquet(hist_path)
+    assert len(hist) == 2
+    assert (hist["equity"] > 0).all()
