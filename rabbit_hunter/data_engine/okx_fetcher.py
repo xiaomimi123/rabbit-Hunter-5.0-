@@ -7,6 +7,9 @@ import pandas as pd
 _OKX_INTERVAL_MAP = {"1H": "1h", "15m": "15m", "1h": "1h", "5m": "5m", "1D": "1d"}
 _LIMIT = 200
 _SLEEP_MS = 200
+# OKX Open Interest history endpoint retains only the recent window.
+# Empirically ~90 days for public REST; requesting earlier returns code 50030.
+_OI_MAX_LOOKBACK_MS = 90 * 24 * 3_600_000
 
 
 def _build_exchange() -> Any:
@@ -58,18 +61,31 @@ def fetch_funding_rate_history(symbol: str, start_ms: int, end_ms: int) -> pd.Da
         cursor = last_ts + 1
         time.sleep(_SLEEP_MS / 1000)
     df = pd.DataFrame(rows, columns=["timestamp", "funding_rate"])
+    df = df.astype({"timestamp": "int64", "funding_rate": "float64"}, copy=False) if not df.empty else \
+         pd.DataFrame({"timestamp": pd.Series(dtype="int64"), "funding_rate": pd.Series(dtype="float64")})
     df = df[df["timestamp"] < end_ms].drop_duplicates(subset="timestamp").reset_index(drop=True)
     return df
 
 
 def fetch_open_interest_history(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame:
-    """OKX Open Interest 历史。ccxt: fetch_open_interest_history。"""
+    """OKX Open Interest 历史。ccxt: fetch_open_interest_history。
+
+    OKX retains only ~90 days of OI history via public REST. `start_ms` is
+    clamped forward to `end_ms - _OI_MAX_LOOKBACK_MS` so callers can pass
+    long ranges without triggering exchange error 50030 (Illegal time range).
+    Transient exchange errors mid-fetch are logged and swallowed — a
+    partial series is preferable to aborting the whole backtest.
+    """
     ex = _build_exchange()
     ccxt_symbol = _to_ccxt_symbol(symbol)
+    effective_start = max(start_ms, end_ms - _OI_MAX_LOOKBACK_MS)
     rows: list[dict] = []
-    cursor = start_ms
+    cursor = effective_start
     while cursor < end_ms:
-        batch = ex.fetch_open_interest_history(ccxt_symbol, timeframe="1h", since=cursor, limit=_LIMIT)
+        try:
+            batch = ex.fetch_open_interest_history(ccxt_symbol, timeframe="1h", since=cursor, limit=_LIMIT)
+        except ccxt.ExchangeError:
+            break
         if not batch:
             break
         for r in batch:
@@ -80,5 +96,7 @@ def fetch_open_interest_history(symbol: str, start_ms: int, end_ms: int) -> pd.D
         cursor = last_ts + 1
         time.sleep(_SLEEP_MS / 1000)
     df = pd.DataFrame(rows, columns=["timestamp", "oi"])
+    df = df.astype({"timestamp": "int64", "oi": "float64"}, copy=False) if not df.empty else \
+         pd.DataFrame({"timestamp": pd.Series(dtype="int64"), "oi": pd.Series(dtype="float64")})
     df = df[df["timestamp"] < end_ms].drop_duplicates(subset="timestamp").reset_index(drop=True)
     return df
