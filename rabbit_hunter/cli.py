@@ -420,6 +420,43 @@ def shadow_status(
             typer.echo(f"  {sym}: {dt}")
 
 
+@app.command()
+def compare(
+    reports: list[Path] = typer.Argument(..., help="Two or more report dirs"),
+    label: list[str] = typer.Option(None, "--label", "-l",
+                                     help="Override display names (order = reports order)"),
+    out_md: Path = typer.Option(None, "--out-md",
+                                 help="Write markdown table to this file"),
+    out_html: Path = typer.Option(None, "--out-html",
+                                   help="Write HTML comparison to this file"),
+    initial_capital: float = typer.Option(10_000.0, help="Base for DD %"),
+):
+    """Side-by-side comparison of ≥2 backtest reports.
+
+    Reads trades.parquet from each report dir, computes standard metrics,
+    and emits markdown (deterministic, LLM-friendly) + self-contained HTML
+    with an overlay equity-curve chart.
+    """
+    from rabbit_hunter.backtest.compare import compare as _compare
+    if len(reports) < 2:
+        raise typer.BadParameter("need at least 2 report directories")
+    if label and len(label) != len(reports):
+        raise typer.BadParameter(
+            f"--label count ({len(label)}) must match reports count ({len(reports)})"
+        )
+    md, html_out = _compare(reports, labels=label, initial_capital=initial_capital)
+    if out_md:
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(md, encoding="utf-8")
+        typer.echo(f"markdown: {out_md}")
+    else:
+        typer.echo(md)
+    if out_html:
+        out_html.parent.mkdir(parents=True, exist_ok=True)
+        out_html.write_text(html_out, encoding="utf-8")
+        typer.echo(f"html: {out_html}")
+
+
 @shadow_app.command("dashboard")
 def shadow_dashboard(
     state_dir: Path = typer.Option(Path("shadows"), help="State root to render"),
