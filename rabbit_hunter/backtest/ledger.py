@@ -62,7 +62,7 @@ class Ledger:
         else:
             pnl_raw = (pos.entry_price - fill.fill_price) * pos.size
         fees_total = pos.fees_paid + fill.fees
-        self.equity += pnl_raw - fill.fees + pos.funding_accum
+        self.equity += pnl_raw - fill.fees
         trade = {
             "symbol": pos.symbol,
             "side": pos.side,

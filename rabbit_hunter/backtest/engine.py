@@ -70,7 +70,8 @@ class BacktestEngine:
                 row = feats.iloc[idx].to_dict()
                 next_bar = feats.iloc[idx + 1].to_dict()
                 price = float(row["close"])
-                atr = float(row.get("atr_14") or 0.0)
+                atr_raw = row.get("atr_14")
+                atr = float(atr_raw) if pd.notna(atr_raw) else 0.0
                 prices_at_ts[symbol] = price
 
                 # 结算 funding（每 8 小时）
