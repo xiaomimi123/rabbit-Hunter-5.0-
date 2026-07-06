@@ -122,8 +122,10 @@ def get_exchange(name: str, **kwargs: Any) -> ExchangeAdapter:
     startup is preferred over silently returning None and crashing later
     with 'NoneType has no attribute fetch_ohlcv'."""
     from .okx import OKXAdapter
+    from .binance import BinanceAdapter
     registry: dict[str, type[ExchangeAdapter]] = {
         "okx": OKXAdapter,
+        "binance": BinanceAdapter,
     }
     key = name.lower()
     if key not in registry:
