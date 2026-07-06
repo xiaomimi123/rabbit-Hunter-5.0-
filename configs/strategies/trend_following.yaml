@@ -4,7 +4,7 @@ params:
   ema_fast: 20
   ema_slow: 60
   ema_trend: 200
-  adx_threshold: 35
+  adx_threshold: 40
   volume_ratio_threshold: 1.5
   confirm_ema_fast: 20
   confirm_adx_threshold: 25
