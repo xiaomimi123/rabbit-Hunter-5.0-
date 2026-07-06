@@ -185,6 +185,35 @@ class ShadowRunner:
         d.mkdir(parents=True, exist_ok=True)
         return d / "snapshots.parquet"
 
+    def _features_log_path(self) -> Path:
+        return self.state_dir / "state" / "features_log.parquet"
+
+    def _append_features_log(self, symbol: str, ts: int, features_row: dict) -> None:
+        """Append one row of tracked features so `rabbit shadow
+        feature-drift` can compare live feature distributions against a
+        baseline. Kept to tracked columns only to bound file size."""
+        from rabbit_hunter.analytics.feature_stability import (
+            DEFAULT_TRACKED_FEATURES,
+        )
+        row: dict = {"timestamp": ts, "symbol": symbol}
+        for c in DEFAULT_TRACKED_FEATURES:
+            if c in features_row:
+                v = features_row[c]
+                # Coerce numpy scalars to plain floats for parquet stability.
+                try:
+                    row[c] = float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    row[c] = None
+        path = self._features_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df_row = pd.DataFrame([row])
+        if path.exists():
+            existing = pd.read_parquet(path)
+            combined = pd.concat([existing, df_row], ignore_index=True)
+        else:
+            combined = df_row
+        combined.to_parquet(path, index=False)
+
     def _write_snapshot(self, record: dict):
         path = self._snapshot_path(record["timestamp"])
         # Append: read existing (if any) + concat + write.
@@ -483,6 +512,10 @@ class ShadowRunner:
                 symbol=symbol, features_row=latest,
                 features_history=history, price=price, atr=atr, ts=latest_ts,
             )
+            # Log this bar's features for offline drift analysis. Only
+            # tracked features + timestamp + symbol — keeps the file
+            # bounded (~10 cols × 9 symbols × 24 bars/day ≈ 66k rows/year).
+            self._append_features_log(symbol, latest_ts, latest)
             self.last_seen_ts[symbol] = latest_ts
             newly_processed += 1
 

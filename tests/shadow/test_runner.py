@@ -159,6 +159,30 @@ def test_shadow_tick_skips_early_warmup_bars(tmp_path):
     assert day_dirs == []
 
 
+def test_shadow_tick_appends_features_log(tmp_path):
+    """Every processed bar appends one row to state/features_log.parquet
+    with the tracked feature columns — foundation for
+    `rabbit shadow feature-drift`."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies, ShadowConfig(state_dir=tmp_path / "s"))
+    feats = _mk_feats(n=250)
+
+    # Restrict to just BTC so the test is deterministic even though
+    # cfg.data.symbols has 9 entries.
+    with patch.object(r, "_fetch_recent_features",
+                      side_effect=lambda sym: feats if sym == "BTC-USDT-SWAP" else None):
+        r.tick()
+
+    log_path = tmp_path / "s" / "state" / "features_log.parquet"
+    assert log_path.exists()
+    log = pd.read_parquet(log_path)
+    assert len(log) == 1
+    assert log["symbol"].iloc[0] == "BTC-USDT-SWAP"
+    assert "rsi_14" in log.columns
+    assert "adx" in log.columns
+
+
 def test_shadow_tick_appends_metrics_history(tmp_path):
     """Every tick — even one with no new bars — writes a metrics row so
     the dashboard has a live heartbeat."""

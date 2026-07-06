@@ -463,6 +463,113 @@ def data_health(
         raise typer.Exit(code=1)
 
 
+@app.command("baseline-features")
+def baseline_features_cmd(
+    config: Path = typer.Option(Path("configs/default.yaml")),
+    data_root: Path = typer.Option(Path("data")),
+    out: Path = typer.Option(Path("baselines/features_latest.json")),
+    tag: str = typer.Option("baseline", "--tag"),
+):
+    """Snapshot per-feature distributions (mean/std/quantiles) over the
+    config's backtest window and symbols. Later `rabbit shadow
+    feature-drift` compares live feature distributions to this file to
+    detect regime changes BEFORE they show up in trade outcomes.
+    """
+    from rabbit_hunter.data_engine.storage import read_ohlcv
+    from rabbit_hunter.feature_engine.pipeline import load_or_compute_features
+    from rabbit_hunter.analytics.feature_stability import (
+        build_baseline_from_features, save,
+    )
+    cfg = load_config(config)
+    end_ms = _iso_to_ms(cfg.backtest.end)
+    start_ms = _iso_to_ms(cfg.backtest.start)
+
+    frames: list[pd.DataFrame] = []
+    for symbol in cfg.data.symbols:
+        def _raw(sym=symbol):
+            df = read_ohlcv(data_root, sym, cfg.data.main_interval,
+                            start_ms, end_ms)
+            fr_path = data_root / "raw" / "okx" / sym / "funding.parquet"
+            if fr_path.exists():
+                fr = pd.read_parquet(fr_path)
+                df = pd.merge_asof(df.sort_values("timestamp"),
+                                    fr.sort_values("timestamp"),
+                                    on="timestamp", direction="backward")
+            oi_path = data_root / "raw" / "okx" / sym / "oi.parquet"
+            if oi_path.exists():
+                oi = pd.read_parquet(oi_path)
+                df = pd.merge_asof(df.sort_values("timestamp"),
+                                    oi.sort_values("timestamp"),
+                                    on="timestamp", direction="backward")
+            return df
+        def _confirm(sym=symbol):
+            return read_ohlcv(data_root, sym, cfg.data.confirm_interval,
+                              start_ms, end_ms)
+        feats = load_or_compute_features(
+            root=data_root, symbol=symbol,
+            interval=cfg.data.main_interval,
+            engine_version=cfg.feature_engine.version,
+            fetch_raw=_raw, fetch_confirm=_confirm,
+        )
+        frames.append(feats)
+    combined = pd.concat(frames, ignore_index=True)
+    snap = build_baseline_from_features(
+        combined, tag=tag,
+        source=f"{cfg.data.symbols} @ {cfg.backtest.start}..{cfg.backtest.end}",
+    )
+    save(snap, out)
+    typer.echo(f"features baseline: {out} "
+               f"(features={len(snap.features)}, rows_used={len(combined)})")
+
+
+@shadow_app.command("feature-drift")
+def shadow_feature_drift(
+    baseline_path: Path = typer.Option(
+        Path("baselines/features_latest.json"),
+        help="Feature baseline JSON to compare against"),
+    state_dir: Path = typer.Option(Path("shadows"),
+                                    help="Shadow state root"),
+    mean_shift_sigmas: float = typer.Option(
+        2.0, help="|Δμ|/σ threshold that triggers"),
+    std_ratio: float = typer.Option(
+        2.0, help="σ_live/σ_baseline band threshold"),
+    min_samples: int = typer.Option(
+        200, help="Min live samples per feature"),
+    fail_on_alert: bool = typer.Option(False, "--fail-on-alert"),
+):
+    """Compare live shadow feature distributions to a backtest baseline.
+
+    Reads state/features_log.parquet (written on every processed bar),
+    then per-feature: |Δμ|/σ ≥ threshold or σ_ratio outside band → alert.
+    Cron this alongside `rabbit shadow drift` — feature drift often
+    precedes trade drift by hours or days.
+    """
+    from rabbit_hunter.analytics.feature_stability import (
+        load, compare, FeatureStabilityThresholds,
+    )
+    if not baseline_path.exists():
+        typer.echo(f"no baseline at {baseline_path}")
+        raise typer.Exit(code=2)
+    log_path = state_dir / "state" / "features_log.parquet"
+    if not log_path.exists():
+        typer.echo(f"no features_log at {log_path}")
+        raise typer.Exit(code=2)
+    baseline = load(baseline_path)
+    live = pd.read_parquet(log_path)
+    report = compare(
+        baseline, live,
+        FeatureStabilityThresholds(
+            mean_shift_sigmas=mean_shift_sigmas,
+            std_ratio_alert=std_ratio,
+            min_live_samples=min_samples,
+        ),
+    )
+    for line in report.as_lines():
+        typer.echo(line)
+    if fail_on_alert and not report.ok:
+        raise typer.Exit(code=1)
+
+
 @app.command("baseline")
 def baseline_cmd(
     report_dir: Path = typer.Argument(..., help="Backtest report to snapshot"),
