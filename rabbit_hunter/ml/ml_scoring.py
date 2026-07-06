@@ -60,24 +60,57 @@ class MLScoring(BaseStrategy):
                 f"Could not recover feature list from pipeline: {e}. "
                 f"Was the model trained with `train_model`?"
             )
+        # v0.1.9 fast path — extract the scaler's mean/scale and the
+        # classifier for direct numpy prediction, bypassing sklearn's
+        # per-call feature-name validation (profiling showed 89% of
+        # backtest CPU was pandas DataFrame construction + sklearn
+        # validation, not the actual inference).
+        self._scaler_mean = np.asarray(scaler.mean_, dtype=np.float64)
+        self._scaler_scale = np.asarray(scaler.scale_, dtype=np.float64)
+        self._clf = self._pipe.named_steps["clf"]
+        # Index of the side_long column so we can flip it long vs short
+        # without touching the rest of the feature vector.
+        try:
+            self._side_long_idx = self._feature_names.index("side_long")
+        except ValueError:
+            self._side_long_idx = -1
 
-    def _predict_prob(self, features_row: dict, side: str) -> float:
-        """Return prob(win) for the given side, or NaN if features missing."""
-        row = {}
-        for feat in self._feature_names:
-            if feat == "side_long":
-                row[feat] = 1 if side == "long" else 0
-            else:
-                # trades.parquet columns are _t0-suffixed. The feature engine
-                # writes them without the suffix during live scoring. Try both.
-                stripped = feat[:-3] if feat.endswith("_t0") else feat
-                v = features_row.get(stripped, features_row.get(feat))
-                if v is None or (isinstance(v, float) and np.isnan(v)):
-                    return float("nan")
-                row[feat] = float(v)
-        X = pd.DataFrame([row])[self._feature_names]
-        prob = self._pipe.predict_proba(X)[0, 1]
-        return float(prob)
+    def _extract_features(self, features_row: dict) -> np.ndarray | None:
+        """Pull the training feature vector out of features_row (no
+        DataFrame roundtrip). Returns None if any required feature is
+        missing/NaN — caller treats that as a score of 0."""
+        n = len(self._feature_names)
+        vec = np.empty(n, dtype=np.float64)
+        for i, feat in enumerate(self._feature_names):
+            if i == self._side_long_idx:
+                vec[i] = 0.0   # placeholder; caller sets per side
+                continue
+            stripped = feat[:-3] if feat.endswith("_t0") else feat
+            v = features_row.get(stripped, features_row.get(feat))
+            if v is None:
+                return None
+            fv = float(v)
+            if fv != fv:   # NaN
+                return None
+            vec[i] = fv
+        return vec
+
+    def _predict_batch(self, features_row: dict) -> tuple[float, float]:
+        """Predict long AND short in a single call. Returns
+        (prob_long, prob_short). NaN when features are missing."""
+        vec = self._extract_features(features_row)
+        if vec is None:
+            return float("nan"), float("nan")
+        # Two rows: [long, short], differing only in side_long.
+        X = np.stack([vec, vec.copy()])
+        if self._side_long_idx >= 0:
+            X[0, self._side_long_idx] = 1.0
+            X[1, self._side_long_idx] = 0.0
+        # Apply StandardScaler manually — pure numpy, no per-call sklearn
+        # validation overhead. Equivalent to scaler.transform(X).
+        Xs = (X - self._scaler_mean) / self._scaler_scale
+        proba = self._clf.predict_proba(Xs)
+        return float(proba[0, 1]), float(proba[1, 1])
 
     def _prob_to_score(self, prob: float) -> float:
         if np.isnan(prob):
@@ -89,8 +122,7 @@ class MLScoring(BaseStrategy):
         return (prob - thr) / max(1.0 - thr, 1e-9)
 
     def score(self, features_row: dict, features_history: pd.DataFrame) -> ScoreOutput:
-        long_prob = self._predict_prob(features_row, "long")
-        short_prob = self._predict_prob(features_row, "short")
+        long_prob, short_prob = self._predict_batch(features_row)
 
         long_score = self._prob_to_score(long_prob)
         short_score = self._prob_to_score(short_prob)
