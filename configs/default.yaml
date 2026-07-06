@@ -1,6 +1,9 @@
 data:
   exchange: okx
-  symbols: [BTC-USDT-SWAP, ETH-USDT-SWAP]
+  symbols: [
+    BTC-USDT-SWAP, ETH-USDT-SWAP, SOL-USDT-SWAP, BNB-USDT-SWAP, XRP-USDT-SWAP,
+    DOGE-USDT-SWAP, AVAX-USDT-SWAP, LINK-USDT-SWAP, ADA-USDT-SWAP, DOT-USDT-SWAP
+  ]
   main_interval: "1H"
   confirm_interval: "15m"
   history_window_days: 730
@@ -23,7 +26,7 @@ strategy_router:
     # (see phase-1b-scalp branch for the data).
 
 risk:
-  risk_per_trade_pct: 1.0
+  risk_per_trade_pct: 0.5
   atr_stop_multiplier: 2.5
   reward_risk_ratio: 2.5
   max_leverage: 3
@@ -58,7 +61,7 @@ portfolio_risk:
   correlation_window_bars: 720
   max_correlation_threshold: 0.7
   correlated_size_reduction: 0.5
-  max_gross_leverage: 3.0
+  max_gross_leverage: 8.0
 
 circuit_breaker:
   enabled: true

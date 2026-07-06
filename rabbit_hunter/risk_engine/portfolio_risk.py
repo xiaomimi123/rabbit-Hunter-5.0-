@@ -103,13 +103,21 @@ class PortfolioRiskEngine:
         size_mult = 1.0
 
         # --- Gate 1: correlation with any open position ---
+        # Non-compounding: applying the reduction ONCE if ANY correlated
+        # position exists. Multiplicative stacking (as in the v0.1e-tuned
+        # first cut) collapses to ~0.06 median mult at 10 symbols and
+        # kills every trade. The right primitive is "am I doubling down
+        # on a correlated bet?", not "how many correlated bets do I have?".
+        correlated_syms = []
         for sym, _pos in open_positions.items():
             if sym == candidate.symbol:
                 continue
             rho = abs(self.correlation(candidate.symbol, sym))
             if rho > self.cfg.max_correlation_threshold:
-                size_mult *= self.cfg.correlated_size_reduction
-                reasons.append(f"correlation:{sym}={rho:.2f}")
+                correlated_syms.append(f"{sym}={rho:.2f}")
+        if correlated_syms:
+            size_mult = self.cfg.correlated_size_reduction
+            reasons.append(f"correlation:{','.join(correlated_syms)}")
 
         # If reduction pushed size to 0, treat as reject
         if size_mult <= 1e-9:

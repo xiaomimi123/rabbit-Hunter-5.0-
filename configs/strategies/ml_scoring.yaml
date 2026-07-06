@@ -1,0 +1,13 @@
+name: ml_scoring
+version: "0.1.0"
+params:
+  # Path is relative to project root. Update after training via
+  # `rabbit ml train` — the CLI prints the resulting model.pkl path.
+  # Left empty here so config loads even before a model exists.
+  model_path: "models/ml_model_vLATEST/model.pkl"
+  # Probability above which the model's opinion counts. 0.5 = coin flip;
+  # 0.6 requires "60%+ win probability" before contributing to routing.
+  prob_threshold: 0.55
+  # "both" = one model, side is one-hot input. Future work: separate
+  # long-only / short-only models via "long" / "short".
+  side_mode: "both"

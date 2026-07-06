@@ -6,7 +6,9 @@ def test_load_default_config(tmp_path):
     cfg_path = Path("configs/default.yaml")
     cfg = load_config(cfg_path)
     # Basic identity assertions — track the current scalp profile defaults.
-    assert cfg.data.symbols == ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
+    assert "BTC-USDT-SWAP" in cfg.data.symbols
+    assert "ETH-USDT-SWAP" in cfg.data.symbols
+    assert len(cfg.data.symbols) >= 2
     assert cfg.data.main_interval in ("1H", "15m")
     assert cfg.data.confirm_interval in ("1H", "15m")
     assert cfg.risk.risk_per_trade_pct > 0
