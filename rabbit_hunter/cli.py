@@ -532,6 +532,29 @@ def live_reconcile(
         raise typer.Exit(code=1)
 
 
+@shadow_app.command("watchdog")
+def shadow_watchdog(
+    state_dir: Path = typer.Option(Path("shadows"),
+                                    help="State root the runner writes to"),
+    max_silence_seconds: float = typer.Option(300.0,
+                                               help="Alert when last tick older than this"),
+):
+    """Check that the shadow runner is still ticking.
+
+    Exits 0 = HEALTHY, 1 = STALE, 2 = DOWN. Meant for cron / alerting
+    integrations — a wrapper script decides what happens on non-zero.
+    """
+    from rabbit_hunter.shadow.watchdog import check
+    result = check(state_dir=state_dir,
+                   max_silence_seconds=max_silence_seconds)
+    typer.echo(result.as_line())
+    if result.status == "healthy":
+        raise typer.Exit(code=0)
+    if result.status == "stale":
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=2)
+
+
 @shadow_app.command("dashboard")
 def shadow_dashboard(
     state_dir: Path = typer.Option(Path("shadows"), help="State root to render"),
