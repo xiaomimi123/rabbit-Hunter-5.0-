@@ -149,7 +149,83 @@ _ROW_LABELS = [
 ]
 
 
-def render_markdown(metrics: list[ReportMetrics]) -> str:
+def _per_symbol_markdown(metrics: list[ReportMetrics]) -> str:
+    """Per-symbol breakdown as a plain markdown table. Same data the HTML
+    breakdown shows — LLM-diffable."""
+    rows = _per_symbol_rows(metrics)
+    if not rows:
+        return "_(no symbol column in trades)_"
+    header = ["Symbol"]
+    for m in metrics:
+        header.extend([f"{m.label} N", f"{m.label} WR", f"{m.label} PnL"])
+    lines = ["| " + " | ".join(header) + " |",
+             "|" + "|".join(["---"] * len(header)) + "|"]
+    for row in rows:
+        cells = [row["symbol"]]
+        for m in metrics:
+            n = row[f"{m.label}_n"]
+            wr = row[f"{m.label}_wr"]
+            pnl = row[f"{m.label}_pnl"]
+            cells.append(str(n) if n else "—")
+            cells.append(f"{wr*100:.1f}%" if n else "—")
+            cells.append(f"{pnl:+,.2f}" if n else "—")
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _top_trades_markdown(metrics: list[ReportMetrics], n: int = 20) -> str:
+    """Top-N trades by |PnL| across all reports as a markdown table.
+    Same data the HTML explorer shows but non-interactive — designed to
+    fit in an LLM prompt (kept short by default)."""
+    frames: list[pd.DataFrame] = []
+    for m in metrics:
+        if m.trades_df.empty:
+            continue
+        pnl_col = ("pnl_after_fees" if "pnl_after_fees" in m.trades_df.columns
+                   else "pnl")
+        f = m.trades_df.copy()
+        f["report"] = m.label
+        f["_pnl"] = f[pnl_col]
+        keep = [c for c in ("report", "symbol", "side", "_pnl", "exit_reason")
+                if c in f.columns]
+        frames.append(f[keep])
+    if not frames:
+        return "_(no trade data)_"
+    df = pd.concat(frames, ignore_index=True)
+    df = df.reindex(df["_pnl"].abs().sort_values(ascending=False).index) \
+           .head(n).reset_index(drop=True)
+    header = list(df.columns)
+    display_hdr = ["PnL" if c == "_pnl" else c for c in header]
+    lines = ["| " + " | ".join(display_hdr) + " |",
+             "|" + "|".join(["---"] * len(header)) + "|"]
+    for _, r in df.iterrows():
+        cells = []
+        for c in header:
+            v = r[c]
+            if c == "_pnl":
+                cells.append(f"{float(v):+,.2f}")
+            else:
+                cells.append(str(v))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def render_markdown(
+    metrics: list[ReportMetrics],
+    include_sections: bool = True,
+    top_trades_n: int = 20,
+) -> str:
+    """Render a markdown comparison. Content mirrors the HTML output so
+    a downstream LLM sees the same data an operator would.
+
+    Sections when `include_sections=True`:
+      1. Summary metrics (always shown)
+      2. Per-symbol breakdown
+      3. Top-N trades by |PnL|
+
+    Passing include_sections=False keeps the classic one-table output for
+    callers that want just the summary (legacy behavior).
+    """
     if len(metrics) < 2:
         raise ValueError("compare needs ≥2 reports")
 
@@ -176,6 +252,18 @@ def render_markdown(metrics: list[ReportMetrics]) -> str:
                 delta_str = "n/a"
             cells.append(delta_str)
         lines.append("| " + " | ".join(cells) + " |")
+
+    if not include_sections:
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("## Per-symbol breakdown")
+    lines.append("")
+    lines.append(_per_symbol_markdown(metrics))
+    lines.append("")
+    lines.append(f"## Top {top_trades_n} trades by |PnL|")
+    lines.append("")
+    lines.append(_top_trades_markdown(metrics, n=top_trades_n))
     return "\n".join(lines)
 
 

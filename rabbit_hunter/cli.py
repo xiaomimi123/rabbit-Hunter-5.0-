@@ -876,25 +876,42 @@ def compare(
     label: list[str] = typer.Option(None, "--label", "-l",
                                      help="Override display names (order = reports order)"),
     out_md: Path = typer.Option(None, "--out-md",
-                                 help="Write markdown table to this file"),
+                                 help="Write markdown to this file"),
     out_html: Path = typer.Option(None, "--out-html",
                                    help="Write HTML comparison to this file"),
     initial_capital: float = typer.Option(10_000.0, help="Base for DD %"),
+    summary_only: bool = typer.Option(False, "--summary-only",
+                                        help="Markdown: emit only the summary metrics table"),
+    top_trades: int = typer.Option(20, "--top-trades",
+                                     help="Markdown: number of top-|PnL| trades to list"),
 ):
     """Side-by-side comparison of ≥2 backtest reports.
 
     Reads trades.parquet from each report dir, computes standard metrics,
-    and emits markdown (deterministic, LLM-friendly) + self-contained HTML
-    with an overlay equity-curve chart.
+    and emits both formats:
+      - Markdown (default): summary metrics + per-symbol breakdown +
+        top-N trades. LLM-friendly, git-diffable, no rendering required.
+      - HTML (--out-html): same content plus interactive sort/filter.
     """
-    from rabbit_hunter.backtest.compare import compare as _compare
+    from rabbit_hunter.backtest.compare import (
+        compare as _compare, render_markdown, render_html,
+        _compute_metrics,
+    )
     if len(reports) < 2:
         raise typer.BadParameter("need at least 2 report directories")
     if label and len(label) != len(reports):
         raise typer.BadParameter(
             f"--label count ({len(label)}) must match reports count ({len(reports)})"
         )
-    md, html_out = _compare(reports, labels=label, initial_capital=initial_capital)
+    labels = label or [d.name for d in reports]
+    metrics = [
+        _compute_metrics(l, d, initial_capital=initial_capital)
+        for l, d in zip(labels, reports)
+    ]
+    md = render_markdown(metrics,
+                          include_sections=not summary_only,
+                          top_trades_n=top_trades)
+    html_out = render_html(metrics)
     if out_md:
         out_md.parent.mkdir(parents=True, exist_ok=True)
         out_md.write_text(md, encoding="utf-8")

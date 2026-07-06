@@ -82,6 +82,64 @@ def test_metrics_missing_file_raises(tmp_path):
 # Markdown rendering
 # ============================================================
 
+def test_markdown_includes_per_symbol_section(tmp_path):
+    """Rich markdown output (default) includes a per-symbol breakdown."""
+    _mk_trades([+10.0, -5.0], tmp_path / "a")
+    df_b = pd.read_parquet(tmp_path / "a" / "trades.parquet").copy()
+    df_b["symbol"] = "ETH-USDT-SWAP"
+    (tmp_path / "b").mkdir()
+    df_b.to_parquet(tmp_path / "b" / "trades.parquet")
+    md, _ = compare([tmp_path / "a", tmp_path / "b"], labels=["A", "B"])
+    assert "## Per-symbol breakdown" in md
+    assert "BTC-USDT-SWAP" in md
+    assert "ETH-USDT-SWAP" in md
+
+
+def test_markdown_includes_top_trades_section(tmp_path):
+    _mk_trades([+100.0, +50.0, -30.0], tmp_path / "a")
+    _mk_trades([+80.0, -20.0], tmp_path / "b")
+    md, _ = compare([tmp_path / "a", tmp_path / "b"], labels=["A", "B"])
+    assert "## Top 20 trades by |PnL|" in md
+    # The largest-|PnL| trade must appear as the first row after headers
+    assert "+100.00" in md
+
+
+def test_markdown_summary_only_skips_extra_sections(tmp_path):
+    """`include_sections=False` reproduces the legacy one-table output."""
+    from rabbit_hunter.backtest.compare import _compute_metrics, render_markdown
+    _mk_trades([+10.0, -5.0], tmp_path / "a")
+    _mk_trades([+15.0, -3.0], tmp_path / "b")
+    mA = _compute_metrics("A", tmp_path / "a")
+    mB = _compute_metrics("B", tmp_path / "b")
+    md = render_markdown([mA, mB], include_sections=False)
+    assert "Per-symbol breakdown" not in md
+    assert "Top" not in md
+    # But summary table is still there
+    assert "| A |" in md.splitlines()[0]
+
+
+def test_markdown_top_trades_n_configurable(tmp_path):
+    """--top-trades caps how many trade rows appear in the section."""
+    from rabbit_hunter.backtest.compare import _compute_metrics, render_markdown
+    _mk_trades([+100.0, +90.0, -80.0, -70.0, +60.0], tmp_path / "a")
+    _mk_trades([+50.0], tmp_path / "b")
+    md = render_markdown(
+        [_compute_metrics("A", tmp_path / "a"),
+         _compute_metrics("B", tmp_path / "b")],
+        top_trades_n=2,
+    )
+    # Section header reflects the cap
+    assert "## Top 2 trades by |PnL|" in md
+    # And the section body should not include the smaller-|PnL| trades
+    # (+50 and +60 have smaller |PnL| than +100 and +90)
+    section = md.split("## Top 2 trades")[1]
+    assert "+100.00" in section
+    assert "+90.00" in section or "-80.00" in section
+    # -70 and +60 should NOT be there
+    assert "+60.00" not in section
+    assert "-70.00" not in section
+
+
 def test_markdown_two_reports_has_delta_column(tmp_path):
     _mk_trades([+100.0, +50.0], tmp_path / "a")
     _mk_trades([+120.0, +40.0], tmp_path / "b")
