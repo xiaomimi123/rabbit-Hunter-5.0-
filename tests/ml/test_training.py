@@ -100,3 +100,26 @@ def test_train_model_rejects_single_class(tmp_path):
     trades["pnl_after_fees"] = 10.0  # all winners
     with pytest.raises(ValueError, match="single-class"):
         train_model(trades, output_root=tmp_path)
+
+
+def test_train_model_with_lightgbm(tmp_path):
+    """LightGBM path handles non-linearities → test AUC should exceed
+    logistic baseline on the same signal-heavy synthetic data."""
+    pytest.importorskip("lightgbm")
+    trades = _mk_trades(300)
+    pipe, result, model_path = train_model(
+        trades=trades, output_root=tmp_path, model_type="lightgbm"
+    )
+    assert model_path.exists()
+    assert result.hyperparameters["model"] == "LGBMClassifier"
+    # With clear synthetic signal, LightGBM should beat baseline 0.5
+    assert result.test_auc > 0.55, f"LightGBM test AUC only {result.test_auc:.3f}"
+
+
+def test_train_model_unknown_type_falls_back_to_logistic(tmp_path):
+    """Unknown model_type argument silently falls back to the logistic
+    baseline (safe default). If we want strict rejection later, adjust
+    training.py to raise on unknown types."""
+    trades = _mk_trades(100)
+    _, result, _ = train_model(trades, output_root=tmp_path, model_type="unknown")
+    assert result.hyperparameters["model"] == "LogisticRegression"

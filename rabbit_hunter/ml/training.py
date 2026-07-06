@@ -37,6 +37,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, accuracy_score
 
+try:
+    from lightgbm import LGBMClassifier
+    _HAS_LGBM = True
+except ImportError:  # pragma: no cover
+    _HAS_LGBM = False
+
 
 # Numeric feature columns from trades.parquet (auto-generated from
 # entry_snapshot by _flatten_trade_row → all suffixed _t0). We hard-code
@@ -111,12 +117,24 @@ def train_model(
     train_fraction: float = 0.7,
     model_version: str | None = None,
     features: list[str] = _DEFAULT_FEATURES,
+    model_type: str = "logistic",
 ) -> tuple[Pipeline, TrainingResult, Path]:
     """Walk-forward training: earliest `train_fraction` for train, rest for test.
+
+    Args:
+        model_type: "logistic" (LogisticRegression) or "lightgbm" (LGBMClassifier).
+            LightGBM handles non-linearities and interactions the linear model
+            can't; expect higher AUC on the same data. Requires the `lightgbm`
+            package (in pyproject.toml since Phase 2 upgrade).
 
     Returns the fitted pipeline, a TrainingResult, and the path where the
     model was saved.
     """
+    if model_type == "lightgbm" and not _HAS_LGBM:
+        raise RuntimeError(
+            "lightgbm not installed. Add `lightgbm>=4.3` to pyproject.toml "
+            "and rebuild the Docker image."
+        )
     if "entry_time" in trades.columns:
         trades = trades.sort_values("entry_time").reset_index(drop=True)
     elif "timestamp" in trades.columns:
@@ -140,10 +158,47 @@ def train_model(
             f"y_test unique={y_test.unique().tolist()}"
         )
 
-    pipe = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(max_iter=1000, class_weight="balanced")),
-    ])
+    if model_type == "lightgbm":
+        # LightGBM handles feature scale internally; still use StandardScaler
+        # so MLScoring's saved feature list can be recovered from the same
+        # attribute (scaler.feature_names_in_) as the linear model.
+        # Aggressive regularization: with ~1600 training rows and 18 features,
+        # unregularized LightGBM overfits to Train AUC 0.99 / Test AUC 0.50.
+        # These params force a small shallow forest — closer to logistic
+        # regression in capacity but able to catch simple interactions.
+        clf = LGBMClassifier(
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.03,
+            num_leaves=7,
+            min_child_samples=50,
+            reg_alpha=0.5,
+            reg_lambda=0.5,
+            class_weight="balanced",
+            verbose=-1,
+            random_state=42,
+        )
+        hyperparams = {
+            "model": "LGBMClassifier",
+            "n_estimators": 50,
+            "max_depth": 3,
+            "learning_rate": 0.03,
+            "num_leaves": 7,
+            "min_child_samples": 50,
+            "reg_alpha": 0.5,
+            "reg_lambda": 0.5,
+            "class_weight": "balanced",
+            "train_fraction": train_fraction,
+        }
+    else:  # logistic
+        clf = LogisticRegression(max_iter=1000, class_weight="balanced")
+        hyperparams = {
+            "model": "LogisticRegression",
+            "max_iter": 1000,
+            "class_weight": "balanced",
+            "train_fraction": train_fraction,
+        }
+    pipe = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
     pipe.fit(X_train, y_train)
 
     train_proba = pipe.predict_proba(X_train)[:, 1]
@@ -164,8 +219,7 @@ def train_model(
         features_used=list(X.columns),
         label_column="pnl_after_fees > 0",
         label_definition="binary win/loss on realized PnL after fees",
-        hyperparameters={"model": "LogisticRegression", "max_iter": 1000,
-                         "class_weight": "balanced", "train_fraction": train_fraction},
+        hyperparameters=hyperparams,
     )
 
     model_dir = output_root / f"ml_model_v{version}"

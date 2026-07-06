@@ -3,7 +3,7 @@ version: "0.1.0"
 params:
   # Path is relative to project root. Update after training via
   # `rabbit ml train` — the CLI prints the resulting model.pkl path.
-  model_path: "models/ml_model_v20260706-095743/model.pkl"
+  model_path: "models/ml_model_v20260706-103857/model.pkl"
   # Probability above which the model's opinion counts. 0.5 = coin flip;
   # 0.55 requires "55%+ win probability" before contributing to routing.
   prob_threshold: 0.55
