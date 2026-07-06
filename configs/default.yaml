@@ -52,3 +52,15 @@ hard_rules:
   min_quote_volume_24h: 1000000.0
   atr_pct_max_multiplier: 5.0
   atr_pct_baseline_window: 500
+
+portfolio_risk:
+  enabled: true
+  correlation_window_bars: 720
+  max_correlation_threshold: 0.7
+  correlated_size_reduction: 0.5
+  max_gross_leverage: 3.0
+
+circuit_breaker:
+  enabled: true
+  atr_shock_multiplier: 3.0
+  emergency_close_on_shock: true

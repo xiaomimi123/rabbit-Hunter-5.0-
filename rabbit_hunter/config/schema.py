@@ -79,6 +79,36 @@ class HardRulesConfig(BaseModel):
     atr_pct_baseline_window: int = 500
 
 
+class PortfolioRiskConfig(BaseModel):
+    """Phase 3 § 3.3: portfolio-level risk gates that see across positions."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    # Rolling window used to compute inter-symbol return correlations.
+    # 720 bars on 1H ≈ 30 days.
+    correlation_window_bars: int = Field(gt=0, default=720)
+    # Absolute Pearson correlation above this → treat as "same bet".
+    max_correlation_threshold: float = Field(gt=0, le=1, default=0.7)
+    # When correlated, multiply candidate order size by this factor
+    # (0.0 = full rejection, 1.0 = no adjustment).
+    correlated_size_reduction: float = Field(ge=0, le=1, default=0.5)
+    # Total (|notional_long| + |notional_short|) / equity cap. Hard reject
+    # any order that would push gross leverage past this.
+    max_gross_leverage: float = Field(gt=0, default=3.0)
+
+
+class CircuitBreakerConfig(BaseModel):
+    """Phase 3 § 3.3: extreme-volatility watchdog independent of strategy path."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    # Trip when current atr_14 >= this × the row's atr_pct_baseline
+    # (already computed by Feature Engine's regime module).
+    atr_shock_multiplier: float = Field(gt=0, default=3.0)
+    # On trip: immediately close all open positions on the offending symbol
+    # at the bar close, and refuse new entries this bar. Recovery: next bar
+    # the ratio is normal again → normal flow resumes.
+    emergency_close_on_shock: bool = True
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data: DataConfig
@@ -89,3 +119,5 @@ class AppConfig(BaseModel):
     backtest: BacktestConfig
     report: ReportConfig
     hard_rules: HardRulesConfig = Field(default_factory=HardRulesConfig)
+    portfolio_risk: PortfolioRiskConfig = Field(default_factory=PortfolioRiskConfig)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
