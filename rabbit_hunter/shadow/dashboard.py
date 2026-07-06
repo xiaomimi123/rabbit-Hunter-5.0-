@@ -205,6 +205,47 @@ def _build_positions_table(ledger) -> str:
 </table></section>'''
 
 
+def _build_cluster_performance_section(ledger) -> str:
+    """Per-cluster breakdown of shadow closed_trades — spots concept
+    drift by comparing live per-cluster stats against backtest baselines."""
+    if ledger is None or not ledger.closed_trades:
+        return ('<section><h2>Per-cluster performance</h2>'
+                '<p class="muted">No closed trades to classify yet.</p></section>')
+    from rabbit_hunter.analytics.cluster_performance import analyze
+    from rabbit_hunter.analytics.clustering import CLUSTER_DESCRIPTIONS
+    df = pd.DataFrame(ledger.closed_trades)
+    report = analyze(df, schema="shadow")
+    rows_html = []
+    for s in report.stats:
+        desc = CLUSTER_DESCRIPTIONS.get(s.cluster, "")
+        if s.n == 0:
+            rows_html.append(
+                f'<tr><td>{html.escape(s.cluster)}<br>'
+                f'<span class="muted" style="font-size:11px">{html.escape(desc)}</span></td>'
+                f'<td colspan="6" class="muted">no trades</td></tr>'
+            )
+            continue
+        pnl_color = "#0a7d34" if s.total_pnl >= 0 else "#c62828"
+        wr_color = "#0a7d34" if s.winrate >= 0.5 else "#c62828"
+        pf_str = "∞" if s.profit_factor == float("inf") else f"{s.profit_factor:.2f}"
+        rows_html.append(
+            f'<tr><td><b>{html.escape(s.cluster)}</b><br>'
+            f'<span class="muted" style="font-size:11px">{html.escape(desc)}</span></td>'
+            f'<td>{s.n}</td>'
+            f'<td style="color:{wr_color}">{s.winrate:.1%}</td>'
+            f'<td style="color:{pnl_color}"><b>{s.total_pnl:+,.2f}</b></td>'
+            f'<td>{s.avg_pnl:+,.2f}</td>'
+            f'<td>{pf_str}</td>'
+            f'<td>{s.sharpe_est:.2f}</td></tr>'
+        )
+    return f'''<section><h2>Per-cluster performance</h2>
+<table>
+  <thead><tr><th>Cluster</th><th>N</th><th>Winrate</th>
+    <th>Total PnL</th><th>Avg</th><th>PF</th><th>Sharpe</th></tr></thead>
+  <tbody>{"".join(rows_html)}</tbody>
+</table></section>'''
+
+
 def _build_recent_trades_table(ledger, n: int = 20) -> str:
     if ledger is None or not ledger.closed_trades:
         return '<section><h2>Recent closed trades</h2><p class="muted">None yet.</p></section>'
@@ -269,6 +310,7 @@ def render_dashboard(state_dir: Path) -> str:
     positions = _build_positions_table(ledger)
     trades = _build_recent_trades_table(ledger)
     health = _build_health_section(hist)
+    clusters = _build_cluster_performance_section(ledger)
 
     return f'''<!doctype html>
 <html lang="en">
@@ -314,6 +356,7 @@ def render_dashboard(state_dir: Path) -> str:
 {health}
 {curve}
 {positions}
+{clusters}
 {trades}
 </main>
 </body>

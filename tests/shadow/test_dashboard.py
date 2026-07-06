@@ -173,6 +173,53 @@ def test_write_dashboard_creates_file(tmp_path):
     assert content.startswith("<!doctype html>")
 
 
+def _seed_ledger_with_shadow_trades(state_dir: Path) -> None:
+    """Seed a ledger with two closed shadow trades so the per-cluster
+    section has real content to render."""
+    from rabbit_hunter.backtest.ledger import Ledger
+    ledger = Ledger(initial_capital=10_000.0)
+    ledger.closed_trades = [
+        {
+            "symbol": "BTC-USDT-SWAP", "side": "short",
+            "pnl_after_fees": +100.0, "exit_reason": "take_profit",
+            "exit_time": 1_700_000_000_000, "bars_held": 5,
+            "entry_snapshot": {
+                "rsi_14": 25.0, "zscore_20": 0.0, "bb_pct": 0.5,
+                "structure_regime": "range", "bos_flag": 0,
+            },
+        },
+        {
+            "symbol": "ETH-USDT-SWAP", "side": "long",
+            "pnl_after_fees": +50.0, "exit_reason": "take_profit",
+            "exit_time": 1_700_003_600_000, "bars_held": 8,
+            "entry_snapshot": {
+                "rsi_14": 75.0, "zscore_20": 0.0, "bb_pct": 0.5,
+                "structure_regime": "range", "bos_flag": 0,
+            },
+        },
+    ]
+    with (state_dir / "state" / "ledger.pkl").open("wb") as f:
+        pickle.dump(ledger, f)
+
+
+def test_dashboard_renders_per_cluster_section(tmp_path):
+    state = _empty_state_dir(tmp_path)
+    _seed_ledger_with_shadow_trades(state)
+    out = render_dashboard(state)
+    # The section header exists
+    assert "Per-cluster performance" in out
+    # Cluster labels shown
+    assert "1_momentum_breakdown" in out
+    assert "2_momentum_breakout" in out
+
+
+def test_dashboard_cluster_section_muted_when_no_trades(tmp_path):
+    state = _empty_state_dir(tmp_path)
+    _seed_ledger(state, n_closed=0)   # ledger with no closed trades
+    out = render_dashboard(state)
+    assert "No closed trades to classify" in out
+
+
 def test_corrupt_history_does_not_crash(tmp_path):
     state = _empty_state_dir(tmp_path)
     _seed_ledger(state)

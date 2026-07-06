@@ -464,6 +464,68 @@ def data_health(
 
 
 @app.command()
+def clusters(
+    report_dir: Path = typer.Argument(..., help="Backtest report dir (contains trades.parquet)"),
+    out: Path = typer.Option(None, "--out",
+                              help="Write markdown report here (else stdout)"),
+):
+    """Per-cluster performance breakdown of a backtest.
+
+    Classifies every trade into one of six cluster (momentum_breakdown,
+    momentum_breakout, range_breakout, trend_continuation, trend_reversal,
+    other) using entry-time features, then aggregates winrate / PF /
+    Sharpe / etc per cluster.
+    """
+    from rabbit_hunter.analytics.cluster_performance import analyze, render_markdown
+    trades_path = report_dir / "trades.parquet"
+    if not trades_path.exists():
+        typer.echo(f"no trades.parquet at {trades_path}")
+        raise typer.Exit(code=1)
+    df = pd.read_parquet(trades_path)
+    md = render_markdown(analyze(df, schema="backtest"))
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(md, encoding="utf-8")
+        typer.echo(f"clusters: {out}")
+    else:
+        typer.echo(md)
+
+
+@shadow_app.command("performance")
+def shadow_performance(
+    state_dir: Path = typer.Option(Path("shadows"), help="State root"),
+    out: Path = typer.Option(None, "--out",
+                              help="Write markdown here (else stdout)"),
+):
+    """Per-cluster performance breakdown of shadow-mode closed trades.
+
+    Reads state/ledger.pkl and classifies each closed_trade by its
+    entry_snapshot, then aggregates. Useful for spotting concept drift
+    — e.g. Cluster-1 momentum_breakdown had 62% WR in backtest; if
+    shadow shows 40%, something changed.
+    """
+    import pickle
+    from rabbit_hunter.analytics.cluster_performance import analyze, render_markdown
+    ledger_p = state_dir / "state" / "ledger.pkl"
+    if not ledger_p.exists():
+        typer.echo(f"no ledger at {ledger_p}")
+        raise typer.Exit(code=1)
+    with ledger_p.open("rb") as f:
+        ledger = pickle.load(f)
+    if not ledger.closed_trades:
+        typer.echo("No closed trades in shadow ledger yet.")
+        raise typer.Exit(code=0)
+    df = pd.DataFrame(ledger.closed_trades)
+    md = render_markdown(analyze(df, schema="shadow"))
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(md, encoding="utf-8")
+        typer.echo(f"performance: {out}")
+    else:
+        typer.echo(md)
+
+
+@app.command()
 def compare(
     reports: list[Path] = typer.Argument(..., help="Two or more report dirs"),
     label: list[str] = typer.Option(None, "--label", "-l",
