@@ -334,6 +334,140 @@ def ml_train(
              model_path=str(model_path))
 
 
+@ml_app.command("list")
+def ml_list(
+    models_root: Path = typer.Option(Path("models"), "--models-root"),
+    ml_config: Path = typer.Option(Path("configs/strategies/ml_scoring.yaml"),
+                                    "--ml-config"),
+):
+    """List every trained model with its test AUC + active marker."""
+    from rabbit_hunter.ml.registry import list_models, get_active_model
+    active = get_active_model(ml_config)
+    models = list_models(models_root, active_path=active)
+    if not models:
+        typer.echo(f"No models under {models_root}")
+        return
+    typer.echo(f"{'*':<2} {'Version':<20} {'Test AUC':<10} "
+               f"{'Train AUC':<10} {'n_train':<10} Trained")
+    typer.echo("-" * 80)
+    for m in models:
+        marker = "*" if m.is_active else " "
+        typer.echo(f"{marker:<2} {m.version:<20} "
+                   f"{m.test_auc:<10.4f} {m.train_auc:<10.4f} "
+                   f"{m.n_train:<10} {m.trained_at}")
+
+
+@ml_app.command("promote")
+def ml_promote(
+    model_path: Path = typer.Argument(..., help="Path to model.pkl to activate"),
+    ml_config: Path = typer.Option(Path("configs/strategies/ml_scoring.yaml"),
+                                    "--ml-config"),
+):
+    """Point MLScoring at a specific model.pkl (atomic YAML rewrite +
+    records the previous active so `rabbit ml rollback` works)."""
+    from rabbit_hunter.ml.registry import promote
+    if not model_path.exists():
+        typer.echo(f"no such model: {model_path}")
+        raise typer.Exit(code=1)
+    prev = promote(ml_config, model_path)
+    typer.echo(f"promoted: {model_path}")
+    typer.echo(f"previous: {prev or '(none)'}")
+
+
+@ml_app.command("rollback")
+def ml_rollback(
+    ml_config: Path = typer.Option(Path("configs/strategies/ml_scoring.yaml"),
+                                    "--ml-config"),
+):
+    """Restore the previously-active model (the one active before the
+    last `rabbit ml promote` or `rabbit ml retrain`)."""
+    from rabbit_hunter.ml.registry import rollback
+    try:
+        restored = rollback(ml_config)
+    except FileNotFoundError as e:
+        typer.echo(f"rollback failed: {e}")
+        raise typer.Exit(code=1)
+    typer.echo(f"restored: {restored}")
+
+
+@ml_app.command("retrain")
+def ml_retrain(
+    source: str = typer.Option("backtest", "--source",
+                                help="'backtest' or 'shadow'"),
+    report_dir: Path = typer.Option(None, "--report-dir",
+                                      help="Backtest report (default: latest)"),
+    reports_root: Path = typer.Option(Path("reports"), "--reports-root"),
+    state_dir: Path = typer.Option(Path("shadows"), "--state-dir",
+                                    help="Shadow state root (when --source shadow)"),
+    models_root: Path = typer.Option(Path("models"), "--models-root"),
+    ml_config: Path = typer.Option(Path("configs/strategies/ml_scoring.yaml"),
+                                    "--ml-config"),
+    model_type: str = typer.Option("lightgbm", "--model-type"),
+    promote_margin: float = typer.Option(
+        0.01, "--promote-margin",
+        help="New AUC must beat prior by ≥ this to auto-promote"),
+    min_test_auc: float = typer.Option(
+        0.52, "--min-test-auc",
+        help="Absolute floor — reject even if there's no prior"),
+    train_fraction: float = typer.Option(0.7, "--train-fraction"),
+    fail_on_reject: bool = typer.Option(False, "--fail-on-reject",
+                                         help="Exit non-zero when candidate rejected"),
+):
+    """Retrain the ML model from backtest or shadow data. Auto-promotes
+    the candidate if its test AUC beats the prior by --promote-margin.
+
+    Meant for cron / CI. Every run — promoted or rejected — writes an
+    audit entry to models/retrain_log.jsonl.
+    """
+    from rabbit_hunter.ml.retraining import (
+        RetrainConfig, retrain,
+        load_trades_from_backtest, load_trades_from_shadow,
+    )
+    if source == "backtest":
+        if report_dir is None:
+            candidates = [
+                d for d in reports_root.iterdir()
+                if d.is_dir() and (d / "trades.parquet").exists()
+            ]
+            if not candidates:
+                typer.echo(f"no backtest reports under {reports_root}")
+                raise typer.Exit(code=1)
+            report_dir = max(candidates, key=lambda d: d.stat().st_mtime)
+            typer.echo(f"# latest report: {report_dir}")
+        trades = load_trades_from_backtest(report_dir)
+    elif source == "shadow":
+        trades = load_trades_from_shadow(state_dir)
+        if trades.empty:
+            typer.echo(f"no shadow trades in {state_dir}")
+            raise typer.Exit(code=1)
+    else:
+        raise typer.BadParameter(f"source must be 'backtest' or 'shadow'")
+
+    typer.echo(f"# training on {len(trades)} trades from {source}")
+
+    outcome = retrain(
+        trades=trades,
+        models_root=models_root,
+        ml_config_path=ml_config,
+        cfg=RetrainConfig(
+            promote_margin_auc=promote_margin,
+            min_test_auc=min_test_auc,
+            train_fraction=train_fraction,
+            model_type=model_type,
+        ),
+    )
+    d = outcome.decision
+    typer.echo(f"decision: {d.action}")
+    typer.echo(f"  candidate test_auc={d.candidate_test_auc:.4f}")
+    if d.prior_test_auc is not None:
+        typer.echo(f"  prior     test_auc={d.prior_test_auc:.4f}")
+    typer.echo(f"  reason:   {d.reason}")
+    typer.echo(f"# audit log: {models_root / 'retrain_log.jsonl'}")
+
+    if fail_on_reject and not d.action.startswith(("promote", "no_prior")):
+        raise typer.Exit(code=1)
+
+
 @shadow_app.command("run")
 def shadow_run(
     config: Path = typer.Option(Path("configs/default.yaml")),

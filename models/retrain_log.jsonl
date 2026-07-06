@@ -1,0 +1,1 @@
+{"timestamp": "2026-07-06T14:45:07+00:00", "action": "reject_below_min", "candidate_path": "models/ml_model_v20260706-144507/model.pkl", "candidate_test_auc": 0.4973262032085562, "prior_active_path": "models/ml_model_v20260706-103857/model.pkl", "prior_test_auc": 0.5370346012872451, "margin": 0.01, "reason": "candidate test_auc=0.4973 < min_test_auc=0.5000"}
