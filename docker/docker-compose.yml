@@ -11,5 +11,6 @@ services:
       - ../configs:/app/configs
       - ../rabbit_hunter:/app/rabbit_hunter
       - ../tests:/app/tests
+      - ../models:/app/models
     working_dir: /app
     tty: true

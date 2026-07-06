@@ -12,6 +12,10 @@ data_app = typer.Typer(help="Data engine commands")
 app.add_typer(data_app, name="data")
 features_app = typer.Typer(help="Feature engine commands")
 app.add_typer(features_app, name="features")
+ai_app = typer.Typer(help="AI Review Agent commands")
+app.add_typer(ai_app, name="ai")
+ml_app = typer.Typer(help="ML training commands")
+app.add_typer(ml_app, name="ml")
 
 
 def _iso_to_ms(s: str) -> int:
@@ -167,6 +171,7 @@ def backtest(
     from rabbit_hunter.scoring_engine.strategies.trend_following import TrendFollowing, TFParams
     from rabbit_hunter.scoring_engine.strategies.mean_reversion import MeanReversion, MRParams
     from rabbit_hunter.scoring_engine.strategies.price_action import PriceAction, PAParams
+    from rabbit_hunter.ml.ml_scoring import MLScoring, MLScoringParams
     from rabbit_hunter.backtest.engine import BacktestEngine
     from rabbit_hunter.backtest.report import ReportBuilder
     from rabbit_hunter.observability.snapshot import SnapshotWriter
@@ -178,6 +183,7 @@ def backtest(
         "trend_following": (TrendFollowing, TFParams),
         "mean_reversion": (MeanReversion, MRParams),
         "price_action": (PriceAction, PAParams),
+        "ml_scoring": (MLScoring, MLScoringParams),
     }
 
     features_by_symbol: dict[str, pd.DataFrame] = {}
@@ -235,6 +241,91 @@ def backtest(
              trades=len(result.ledger.closed_trades),
              final_equity=result.ledger.equity)
     typer.echo(f"report: {out_dir}")
+
+
+@ai_app.command("review")
+def ai_review(
+    report_dir: Path = typer.Argument(None, help="Path to reports/YYYY-MM-DD-HHMM/ (default: latest)"),
+    out_file: Path = typer.Option(None, "--out", "-o", help="Write prompt to this file (default: stdout)"),
+    reports_root: Path = typer.Option(Path("reports"), help="Reports root when --report-dir not given"),
+):
+    """Build an LLM review prompt from a backtest report.
+
+    Output is a single prompt that can be pasted into any LLM (Claude, GPT,
+    DeepSeek, etc.). The LLM returns structured JSON suggestions. Consuming
+    those suggestions is a manual human workflow (see architecture § 3.5).
+    """
+    configure_logger()
+    from rabbit_hunter.ai_review import load_report_bundle, build_review_prompt
+
+    if report_dir is None:
+        # Default: pick the newest report subdir
+        candidates = [d for d in reports_root.iterdir() if d.is_dir()]
+        if not candidates:
+            raise typer.BadParameter(f"No reports found under {reports_root}")
+        report_dir = max(candidates, key=lambda d: d.stat().st_mtime)
+        typer.echo(f"# Using latest report: {report_dir}")
+
+    bundle = load_report_bundle(report_dir)
+    prompt = build_review_prompt(bundle)
+
+    if out_file:
+        out_file.write_text(prompt, encoding="utf-8")
+        typer.echo(f"Prompt written to {out_file}")
+    else:
+        typer.echo(prompt)
+
+
+@ml_app.command("train")
+def ml_train(
+    report_dir: Path = typer.Argument(None, help="Backtest report to use as training data (default: latest)"),
+    output_root: Path = typer.Option(Path("models"), "--out", help="Where to save the trained model"),
+    reports_root: Path = typer.Option(Path("reports"), help="Reports root when --report-dir not given"),
+    train_fraction: float = typer.Option(0.7, help="Fraction for walk-forward train split"),
+):
+    """Train a logistic regression scoring model from a backtest's trades.parquet.
+
+    Produces a versioned model file under models/ that MLScoring can load
+    at inference time. Architecture spec § 4.1: models are versioned and
+    training is offline; inference NEVER retrains.
+    """
+    configure_logger()
+    log = get_logger("cli.ml_train")
+
+    if report_dir is None:
+        candidates = [d for d in reports_root.iterdir() if d.is_dir() and (d / "trades.parquet").exists()]
+        if not candidates:
+            raise typer.BadParameter(f"No backtest reports with trades.parquet found under {reports_root}")
+        report_dir = max(candidates, key=lambda d: d.stat().st_mtime)
+        typer.echo(f"# Using latest report: {report_dir}")
+
+    trades_path = report_dir / "trades.parquet"
+    if not trades_path.exists():
+        raise typer.BadParameter(f"No trades.parquet in {report_dir}")
+
+    trades = pd.read_parquet(trades_path)
+    typer.echo(f"# Loaded {len(trades)} trades from {trades_path}")
+
+    from rabbit_hunter.ml.training import train_model
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    _, result, model_path = train_model(
+        trades=trades,
+        output_root=output_root,
+        train_fraction=train_fraction,
+    )
+    typer.echo(f"# Trained model v{result.model_version}")
+    typer.echo(f"# n_train={result.n_train}, n_test={result.n_test}")
+    typer.echo(f"# Train AUC={result.train_auc:.3f}, Test AUC={result.test_auc:.3f}")
+    typer.echo(f"# Train Acc={result.train_accuracy:.3f}, Test Acc={result.test_accuracy:.3f}")
+    typer.echo(f"# Saved to {model_path}")
+    log.info("ml_train_done",
+             version=result.model_version,
+             train_auc=result.train_auc,
+             test_auc=result.test_auc,
+             n_train=result.n_train,
+             n_test=result.n_test,
+             model_path=str(model_path))
 
 
 if __name__ == "__main__":

@@ -152,3 +152,24 @@ def test_no_correlated_position_passes_through():
     assert result.accepted is True
     assert result.size_multiplier == 1.0
     assert result.adjusted_order is candidate
+
+
+def test_correlation_reduction_is_non_compounding_at_multi_symbol():
+    """With 5 correlated open positions, size_mult must be exactly
+    correlated_size_reduction (0.5), NOT 0.5**5 = 0.03125. Non-compounding
+    is the design fix for 10-symbol backtests where multiplicative stacking
+    collapses all orders to ~1/16 size."""
+    prices = np.linspace(100, 200, 1000)
+    engine = PortfolioRiskEngine(
+        _default_cfg(),
+        {sym: _feats(prices) for sym in ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE"]},
+    )
+    open_positions = {
+        sym: _Pos(symbol=sym, side="long", entry_price=100.0, size=1.0)
+        for sym in ["BTC", "ETH", "SOL", "BNB", "XRP"]  # 5 correlated positions
+    }
+    candidate = _mk_order(symbol="DOGE", entry=100.0, size=1.0)
+    result = engine.evaluate(candidate, open_positions, equity=10_000.0)
+    assert result.accepted is True
+    # The critical assertion — mult is 0.5, NOT 0.5**5 = 0.03125
+    assert result.size_multiplier == pytest.approx(0.5)
