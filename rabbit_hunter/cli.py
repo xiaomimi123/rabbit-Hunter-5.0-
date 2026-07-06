@@ -17,7 +17,9 @@ app.add_typer(ai_app, name="ai")
 ml_app = typer.Typer(help="ML training commands")
 app.add_typer(ml_app, name="ml")
 shadow_app = typer.Typer(help="Shadow-mode (paper trading) commands")
+live_app = typer.Typer(help="Live-execution commands (Phase 5)")
 app.add_typer(shadow_app, name="shadow")
+app.add_typer(live_app, name="live")
 
 
 def _iso_to_ms(s: str) -> int:
@@ -496,6 +498,38 @@ def compare(
         out_html.parent.mkdir(parents=True, exist_ok=True)
         out_html.write_text(html_out, encoding="utf-8")
         typer.echo(f"html: {out_html}")
+
+
+@live_app.command("reconcile")
+def live_reconcile(
+    config: Path = typer.Option(Path("configs/default.yaml")),
+    state_dir: Path = typer.Option(Path("shadows"),
+                                    help="State root to load ledger from"),
+    fail_on_mismatch: bool = typer.Option(False, "--fail-on-mismatch",
+                                           help="Exit non-zero if drift found"),
+):
+    """Compare the shadow ledger's open positions against exchange state.
+
+    Read-only. Never modifies the ledger or places orders. Meant to run in
+    cron / watchdog so drift is caught before the next entry decision.
+    """
+    import pickle
+    from rabbit_hunter.execution_engine.live_executor import LiveExecutor
+    from rabbit_hunter.execution_engine.reconciliation import reconcile_positions
+    cfg = load_config(config)
+    ledger_p = state_dir / "state" / "ledger.pkl"
+    if not ledger_p.exists():
+        typer.echo(f"no ledger at {ledger_p}")
+        raise typer.Exit(code=2)
+    with ledger_p.open("rb") as f:
+        ledger = pickle.load(f)
+    executor = LiveExecutor(cfg.execution, cfg.live_execution)
+    exchange_positions = executor.fetch_exchange_positions()
+    report = reconcile_positions(ledger.open_positions, exchange_positions)
+    for line in report.as_lines():
+        typer.echo(line)
+    if fail_on_mismatch and not report.ok:
+        raise typer.Exit(code=1)
 
 
 @shadow_app.command("dashboard")

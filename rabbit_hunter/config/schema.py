@@ -109,6 +109,35 @@ class CircuitBreakerConfig(BaseModel):
     emergency_close_on_shock: bool = True
 
 
+class LiveExecutionConfig(BaseModel):
+    """Phase 5 · live-execution safety envelope.
+
+    Two invariants pinned in this schema (before any code runs):
+
+      1. `enabled=False` is the default. Every code path that could touch
+         real money checks this flag first and short-circuits when off.
+
+      2. When enabled, credentials MUST come from env vars named here.
+         No plaintext keys ever appear in config or version control. If
+         the env var is unset, the LiveExecutor refuses to construct —
+         we prefer a loud startup crash over silently reverting to paper.
+    """
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    exchange: Literal["okx"] = "okx"
+    testnet: bool = True
+    api_key_env: str = "OKX_API_KEY"
+    api_secret_env: str = "OKX_API_SECRET"
+    passphrase_env: str = "OKX_API_PASSPHRASE"
+    # Max notional per order (belt-and-suspenders on top of position sizing).
+    # A misconfigured risk engine cannot blow past this without also editing
+    # config — makes accidental fat-finger orders effectively impossible.
+    max_notional_per_order: float = Field(gt=0, default=1_000.0)
+    # If True, block orders when reconciliation shows a mismatch between
+    # ledger positions and exchange positions.
+    block_on_reconcile_mismatch: bool = True
+
+
 class BtcCrashBoostConfig(BaseModel):
     """v0.1.3: on BTC systemic-crash bars, uplift same-side short orders.
     Cluster analysis showed 10 mass-crash days generated $21 per trade avg
@@ -151,3 +180,4 @@ class AppConfig(BaseModel):
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     chop_kill_switch: ChopKillSwitchConfig = Field(default_factory=ChopKillSwitchConfig)
     btc_crash_boost: BtcCrashBoostConfig = Field(default_factory=BtcCrashBoostConfig)
+    live_execution: LiveExecutionConfig = Field(default_factory=LiveExecutionConfig)
