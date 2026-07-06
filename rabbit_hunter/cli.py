@@ -165,10 +165,18 @@ def backtest(
     from rabbit_hunter.data_engine.storage import read_ohlcv
     from rabbit_hunter.feature_engine.pipeline import load_or_compute_features
     from rabbit_hunter.scoring_engine.strategies.trend_following import TrendFollowing, TFParams
+    from rabbit_hunter.scoring_engine.strategies.mean_reversion import MeanReversion, MRParams
     from rabbit_hunter.backtest.engine import BacktestEngine
     from rabbit_hunter.backtest.report import ReportBuilder
     from rabbit_hunter.observability.snapshot import SnapshotWriter
     import yaml as _yaml
+
+    # Strategy registry: name → (class, params_class). Adding a new plugin =
+    # add one line here + one new file under strategies/ + one YAML.
+    _STRATEGY_REGISTRY = {
+        "trend_following": (TrendFollowing, TFParams),
+        "mean_reversion": (MeanReversion, MRParams),
+    }
 
     features_by_symbol: dict[str, pd.DataFrame] = {}
     for symbol in cfg.data.symbols:
@@ -196,11 +204,21 @@ def backtest(
         )
         features_by_symbol[symbol] = feats
 
-    tf_cfg_path = Path("configs") / cfg.strategy_router.enabled_strategies["trend_following"].config_file
-    tf_yaml = _yaml.safe_load(tf_cfg_path.read_text(encoding="utf-8"))
-    tf = TrendFollowing(TFParams(**tf_yaml["params"]))
+    # Instantiate all enabled strategies from config via the registry.
+    strategies = []
+    for name, entry in cfg.strategy_router.enabled_strategies.items():
+        if name not in _STRATEGY_REGISTRY:
+            raise typer.BadParameter(
+                f"Unknown strategy '{name}' in enabled_strategies. "
+                f"Registered: {sorted(_STRATEGY_REGISTRY)}"
+            )
+        Strat, ParamsCls = _STRATEGY_REGISTRY[name]
+        strat_cfg_path = Path("configs") / entry.config_file
+        strat_yaml = _yaml.safe_load(strat_cfg_path.read_text(encoding="utf-8"))
+        strategies.append(Strat(ParamsCls(**strat_yaml["params"])))
+        log.info("strategy_loaded", name=name, config=str(strat_cfg_path))
 
-    engine = BacktestEngine(cfg, [tf])
+    engine = BacktestEngine(cfg, strategies)
     result = engine.run(features_by_symbol)
 
     # 写快照

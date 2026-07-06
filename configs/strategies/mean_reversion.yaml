@@ -1,0 +1,11 @@
+name: mean_reversion
+version: "0.1.0"
+params:
+  rsi_oversold: 30.0
+  rsi_overbought: 70.0
+  bb_extreme_low: 0.15
+  bb_extreme_high: 0.85
+  zscore_threshold: 2.0
+  w_rsi: 0.35
+  w_bb: 0.35
+  w_zscore: 0.30

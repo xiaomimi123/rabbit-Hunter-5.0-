@@ -9,7 +9,7 @@ from rabbit_hunter.scoring_engine import pass_hard_rules, HardRulesParams
 from rabbit_hunter.strategy_router.router import StrategyRouter
 from rabbit_hunter.risk_engine.engine import RiskEngine, RiskContext
 from rabbit_hunter.execution_engine.backtest_executor import BacktestExecutor
-from .ledger import Ledger
+from .ledger import Ledger, TrailingConfig
 
 
 @dataclass
@@ -43,12 +43,21 @@ class BacktestEngine:
             atr_pct_max_multiplier=app_config.hard_rules.atr_pct_max_multiplier,
             atr_pct_baseline_window=app_config.hard_rules.atr_pct_baseline_window,
         )
+        self._trailing_cfg = TrailingConfig(
+            enabled=app_config.risk.trailing_enabled,
+            activation_r=app_config.risk.trailing_activation_r,
+            atr_multiplier=app_config.risk.trailing_atr_multiplier,
+        )
 
     def run(
         self,
         features_by_symbol: dict[str, pd.DataFrame],
-        open_action_threshold: float = 0.5,
+        open_action_threshold: float | None = None,
     ) -> BacktestResult:
+        # If caller doesn't pass an explicit threshold, use the router config
+        # value. Explicit param still wins so tests can override.
+        if open_action_threshold is None:
+            open_action_threshold = self.cfg.strategy_router.open_action_threshold
         ledger = Ledger(initial_capital=self.cfg.backtest.initial_capital)
 
         # 合并所有 symbol 的 timestamps 并按顺序处理
@@ -88,7 +97,7 @@ class BacktestEngine:
                     if fr is not None and pd.notna(fr):
                         ledger.apply_funding(symbol, price, float(fr), self.executor)
 
-                # 检查已有仓位是否触发止损/止盈/超时
+                # 检查已有仓位是否触发止损/止盈/超时/移动止损
                 if symbol in ledger.open_positions:
                     exit_snapshot_fn = lambda r=row: r
                     trades = ledger.check_exits(
@@ -98,6 +107,7 @@ class BacktestEngine:
                         executor=self.executor,
                         hold_timeout_bars=self.cfg.risk.hold_timeout_bars,
                         exit_snapshot_fn=exit_snapshot_fn,
+                        trailing=self._trailing_cfg,
                     )
                     for t in trades:
                         daily_realized[day_str] += t["pnl_after_fees"]

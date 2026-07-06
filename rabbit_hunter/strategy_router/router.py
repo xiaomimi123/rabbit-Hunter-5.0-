@@ -18,6 +18,9 @@ class Intent:
     score_components: dict = field(default_factory=dict)
 
 
+_SUPPORTED_COMPOSERS = {"weighted_avg", "max_score"}
+
+
 class StrategyRouter:
     def __init__(
         self,
@@ -25,9 +28,10 @@ class StrategyRouter:
         strategy_weights: dict[str, dict],
         strategies: list[BaseStrategy],
     ):
-        if composer != "weighted_avg":
-            # Phase 1a 只实现 weighted_avg；其他 composer 留给 1b/1c
-            raise NotImplementedError(f"composer {composer} not implemented in Phase 1a")
+        if composer not in _SUPPORTED_COMPOSERS:
+            raise NotImplementedError(
+                f"composer {composer} not implemented. Supported: {sorted(_SUPPORTED_COMPOSERS)}"
+            )
         self.composer = composer
         self.weights = {name: float(cfg["weight"]) for name, cfg in strategy_weights.items()}
         self.strategies = [s for s in strategies if s.name in self.weights]
@@ -43,9 +47,19 @@ class StrategyRouter:
         for s in self.strategies:
             outputs[s.name] = s.score(features_row, features_history)
 
-        total_w = sum(self.weights[n] for n in outputs) or 1.0
-        long_sum = sum(outputs[n].long * self.weights[n] for n in outputs) / total_w
-        short_sum = sum(outputs[n].short * self.weights[n] for n in outputs) / total_w
+        if self.composer == "weighted_avg":
+            total_w = sum(self.weights[n] for n in outputs) or 1.0
+            long_sum = sum(outputs[n].long * self.weights[n] for n in outputs) / total_w
+            short_sum = sum(outputs[n].short * self.weights[n] for n in outputs) / total_w
+        elif self.composer == "max_score":
+            # Take the maximum long/short across all enabled strategies. Any
+            # strategy with an above-threshold conviction can trigger. This is
+            # the right composer when strategies operate in disjoint regimes
+            # (e.g. trend_following in trending, mean_reversion in ranging).
+            long_sum = max((outputs[n].long for n in outputs), default=0.0)
+            short_sum = max((outputs[n].short for n in outputs), default=0.0)
+        else:
+            raise NotImplementedError(f"unhandled composer {self.composer}")
 
         # contributing_strategies = 每个策略的 long 分（用于报告）
         contributing_display = {n: outputs[n].long for n in outputs}
