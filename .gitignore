@@ -12,6 +12,7 @@ venv/
 data/
 snapshots/
 reports/
+shadows/
 
 # IDE
 .vscode/

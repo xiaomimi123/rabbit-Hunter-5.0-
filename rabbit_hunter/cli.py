@@ -16,6 +16,8 @@ ai_app = typer.Typer(help="AI Review Agent commands")
 app.add_typer(ai_app, name="ai")
 ml_app = typer.Typer(help="ML training commands")
 app.add_typer(ml_app, name="ml")
+shadow_app = typer.Typer(help="Shadow-mode (paper trading) commands")
+app.add_typer(shadow_app, name="shadow")
 
 
 def _iso_to_ms(s: str) -> int:
@@ -328,6 +330,94 @@ def ml_train(
              n_train=result.n_train,
              n_test=result.n_test,
              model_path=str(model_path))
+
+
+@shadow_app.command("run")
+def shadow_run(
+    config: Path = typer.Option(Path("configs/default.yaml")),
+    state_dir: Path = typer.Option(Path("shadows"), help="Where ledger+snapshots persist"),
+    poll_interval: int = typer.Option(60, help="Seconds between OKX poll ticks"),
+    lookback_bars: int = typer.Option(600, help="Bars back to fetch per tick"),
+):
+    """Run the shadow-mode paper-trading loop.
+
+    Fetches K-lines from OKX every poll_interval seconds, runs the same
+    Feature Engine → Scoring → Router → Risk → PortfolioRisk pipeline as
+    backtest, and records simulated fills to `state_dir/`. Never touches
+    a real exchange order endpoint.
+
+    Ctrl-C to stop — state (ledger + last-seen-ts) persists across runs.
+    """
+    configure_logger()
+    cfg = load_config(config)
+
+    from rabbit_hunter.scoring_engine.strategies.trend_following import TrendFollowing, TFParams
+    from rabbit_hunter.scoring_engine.strategies.mean_reversion import MeanReversion, MRParams
+    from rabbit_hunter.scoring_engine.strategies.price_action import PriceAction, PAParams
+    from rabbit_hunter.ml.ml_scoring import MLScoring, MLScoringParams
+    from rabbit_hunter.shadow import ShadowRunner, ShadowConfig
+    import yaml as _yaml
+
+    _STRATEGY_REGISTRY = {
+        "trend_following": (TrendFollowing, TFParams),
+        "mean_reversion": (MeanReversion, MRParams),
+        "price_action": (PriceAction, PAParams),
+        "ml_scoring": (MLScoring, MLScoringParams),
+    }
+    strategies = []
+    for name, entry in cfg.strategy_router.enabled_strategies.items():
+        if name not in _STRATEGY_REGISTRY:
+            raise typer.BadParameter(f"Unknown strategy {name}")
+        Strat, ParamsCls = _STRATEGY_REGISTRY[name]
+        strat_cfg_path = Path("configs") / entry.config_file
+        strat_yaml = _yaml.safe_load(strat_cfg_path.read_text(encoding="utf-8"))
+        strategies.append(Strat(ParamsCls(**strat_yaml["params"])))
+
+    runner = ShadowRunner(
+        app_config=cfg, strategies=strategies,
+        shadow_config=ShadowConfig(
+            poll_interval_seconds=poll_interval,
+            lookback_bars=lookback_bars,
+            state_dir=state_dir,
+        ),
+    )
+    runner.run_forever()
+
+
+@shadow_app.command("status")
+def shadow_status(
+    state_dir: Path = typer.Option(Path("shadows"), help="State root to inspect"),
+):
+    """Show current ledger + last-seen-ts state. Read-only."""
+    import pickle as _pickle
+    import json as _json
+
+    ledger_p = state_dir / "state" / "ledger.pkl"
+    lastseen_p = state_dir / "state" / "last_seen_ts.json"
+
+    if not ledger_p.exists():
+        typer.echo(f"No ledger state at {ledger_p}. Has `rabbit shadow run` been started?")
+        raise typer.Exit(code=1)
+
+    with ledger_p.open("rb") as f:
+        ledger = _pickle.load(f)
+    typer.echo(f"Ledger loaded from: {ledger_p}")
+    typer.echo(f"  initial_capital: ${ledger.initial_capital:,.2f}")
+    typer.echo(f"  equity:          ${ledger.equity:,.2f}")
+    ret_pct = (ledger.equity / ledger.initial_capital - 1) * 100
+    typer.echo(f"  return_pct:      {ret_pct:+.2f}%")
+    typer.echo(f"  open_positions:  {len(ledger.open_positions)}")
+    for sym, pos in ledger.open_positions.items():
+        typer.echo(f"    - {sym}: {pos.side} size={pos.size:.4f} @ ${pos.entry_price:,.2f}, "
+                   f"stop=${pos.stop:,.2f}, tp=${pos.take_profit:,.2f}")
+    typer.echo(f"  closed_trades:   {len(ledger.closed_trades)}")
+
+    if lastseen_p.exists():
+        seen = _json.loads(lastseen_p.read_text(encoding="utf-8"))
+        typer.echo(f"Last-seen timestamps:")
+        for sym, ts in seen.items():
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
+            typer.echo(f"  {sym}: {dt}")
 
 
 if __name__ == "__main__":

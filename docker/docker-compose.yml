@@ -12,5 +12,6 @@ services:
       - ../rabbit_hunter:/app/rabbit_hunter
       - ../tests:/app/tests
       - ../models:/app/models
+      - ../shadows:/app/shadows
     working_dir: /app
     tty: true
