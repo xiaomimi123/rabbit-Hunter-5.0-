@@ -22,6 +22,45 @@ def _to_ccxt_symbol(symbol: str) -> str:
     return f"{base}/{quote}:{quote}"
 
 
+def fetch_orderbook_top(symbol: str) -> dict[str, float] | None:
+    """Return top-of-book bid/ask/mid for one symbol. Used by shadow mode
+    to simulate a realistic market-order fill price (buy hits ask, sell
+    hits bid) instead of using bar close as a proxy.
+
+    Returns None on any network / ccxt error — caller falls back to close.
+    """
+    try:
+        ex = _build_exchange()
+        ccxt_symbol = _to_ccxt_symbol(symbol)
+        ob = ex.fetch_order_book(ccxt_symbol, limit=1)
+        bid = float(ob["bids"][0][0]) if ob["bids"] else None
+        ask = float(ob["asks"][0][0]) if ob["asks"] else None
+        if bid is None or ask is None:
+            return None
+        return {"bid": bid, "ask": ask, "mid": (bid + ask) / 2, "spread": ask - bid}
+    except Exception:
+        return None
+
+
+def fetch_current_funding_rate(symbol: str) -> dict[str, Any] | None:
+    """Return current OKX funding rate + next settlement time for one symbol.
+    Shadow mode uses OKX's rate (not Binance's) because that's what a real
+    OKX-perpetual position would actually be charged.
+
+    Returns dict {rate, next_funding_time_ms} or None on error.
+    """
+    try:
+        ex = _build_exchange()
+        ccxt_symbol = _to_ccxt_symbol(symbol)
+        fr = ex.fetch_funding_rate(ccxt_symbol)
+        return {
+            "rate": float(fr["fundingRate"]),
+            "next_funding_time_ms": int(fr["fundingTimestamp"]),
+        }
+    except Exception:
+        return None
+
+
 def fetch_ohlcv(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.DataFrame:
     ex = _build_exchange()
     ccxt_symbol = _to_ccxt_symbol(symbol)

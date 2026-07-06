@@ -44,7 +44,9 @@ from rabbit_hunter.risk_engine.portfolio_risk import PortfolioRiskEngine
 from rabbit_hunter.risk_engine.circuit_breaker import CircuitBreaker
 from rabbit_hunter.execution_engine.paper_executor import PaperExecutor
 from rabbit_hunter.backtest.ledger import Ledger, TrailingConfig
-from rabbit_hunter.data_engine.okx_fetcher import fetch_ohlcv
+from rabbit_hunter.data_engine.okx_fetcher import (
+    fetch_ohlcv, fetch_orderbook_top, fetch_current_funding_rate,
+)
 from rabbit_hunter.data_engine.binance_funding import fetch_funding_rate_history_binance
 from rabbit_hunter.feature_engine.pipeline import build_features
 from rabbit_hunter.observability.logger import get_logger
@@ -104,6 +106,7 @@ class ShadowRunner:
         # Persisted state
         self.ledger = self._load_ledger()
         self.last_seen_ts = self._load_last_seen_ts()
+        self.last_funding_settlement_ts = self._load_funding_settle_ts()
         # PortfolioRiskEngine wants features_by_symbol; seeded lazily on first tick
         self._portfolio_risk: PortfolioRiskEngine | None = None
         # Latest features by symbol (needed to compute correlations across ticks)
@@ -147,6 +150,20 @@ class ShadowRunner:
     def _save_last_seen_ts(self):
         self._last_seen_path().write_text(
             json.dumps(self.last_seen_ts, indent=2), encoding="utf-8"
+        )
+
+    def _funding_settle_path(self) -> Path:
+        return self.state_dir / "state" / "last_funding_settlement.json"
+
+    def _load_funding_settle_ts(self) -> dict[str, int]:
+        p = self._funding_settle_path()
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+        return {}
+
+    def _save_funding_settle_ts(self):
+        self._funding_settle_path().write_text(
+            json.dumps(self.last_funding_settlement_ts, indent=2), encoding="utf-8"
         )
 
     # ------------------------------------------------------------------
@@ -327,9 +344,24 @@ class ShadowRunner:
         if order is None:
             return
 
-        # 7. Paper execute using CURRENT bar (real-time — no "next bar" available)
+        # 7. Paper execute — fetch REAL order book to get bid/ask, then use
+        # side-appropriate top of book as the fill price. This is what a
+        # market order would actually get filled at in production (buy hits
+        # ask, sell hits bid). Fallback to current close if order-book fetch
+        # fails (network flake, symbol delisted, etc).
+        ob = fetch_orderbook_top(symbol)
+        if ob is not None:
+            fill_price = ob["ask"] if order.side == "long" else ob["bid"]
+            real_bid = ob["bid"]
+            real_ask = ob["ask"]
+            real_spread = ob["spread"]
+        else:
+            fill_price = float(features_row["close"])
+            real_bid = None
+            real_ask = None
+            real_spread = None
         current_bar = {
-            "timestamp": ts, "open": features_row["close"],  # fill at current close as proxy
+            "timestamp": ts, "open": fill_price,
             "high": features_row["high"], "low": features_row["low"],
             "close": features_row["close"],
         }
@@ -339,13 +371,72 @@ class ShadowRunner:
             strategy_scores=intent.contributing_strategies,
             stop=order.stop_price, take_profit=order.take_profit_price,
         )
+        # Append the real-market context to the entry snapshot too so that
+        # 24h from now we can diff "what we simulated" vs "what real market
+        # was doing at that moment"
+        self._write_snapshot({
+            "timestamp": ts, "symbol": symbol, "action": f"entry_{fill.side}",
+            "conviction": intent.conviction,
+            "fill_price": fill.fill_price,
+            "fill_size": fill.size,
+            "fill_fees": fill.fees,
+            "real_bid": real_bid, "real_ask": real_ask, "real_spread": real_spread,
+            "bar_close": float(features_row["close"]),
+            "stop_price": order.stop_price,
+            "take_profit_price": order.take_profit_price,
+        })
         self.log.info("shadow_entry",
                       symbol=symbol, side=fill.side, price=fill.fill_price,
-                      size=fill.size, equity=self.ledger.equity)
+                      size=fill.size, equity=self.ledger.equity,
+                      real_bid=real_bid, real_ask=real_ask)
 
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
+    def _maybe_settle_funding(self):
+        """Apply OKX funding to any open position if the current wall clock
+        is past the next 8-hour settlement boundary since we last settled.
+
+        OKX funding is at 00:00, 08:00, 16:00 UTC. This method fires per
+        symbol at most once per settlement, and uses OKX's live funding
+        rate (not Binance's history-based rate that feeds the strategy).
+        """
+        if not self.cfg.execution.funding_settlement:
+            return
+        if not self.ledger.open_positions:
+            return
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        eight_hours_ms = 8 * 3_600_000
+        current_boundary = (now_ms // eight_hours_ms) * eight_hours_ms
+
+        for symbol, pos in list(self.ledger.open_positions.items()):
+            last_settled = self.last_funding_settlement_ts.get(symbol, 0)
+            if current_boundary <= last_settled:
+                continue
+            # Cross next boundary → settle. Fetch OKX current rate.
+            fr = fetch_current_funding_rate(symbol)
+            if fr is None:
+                # Skip this settlement; retry next tick
+                self.log.warning("funding_fetch_failed_skipping", symbol=symbol)
+                continue
+            price = float(self._latest_features[symbol].iloc[-1]["close"]) \
+                if symbol in self._latest_features else pos.entry_price
+            self.ledger.apply_funding(symbol, price, fr["rate"], self.executor)
+            self.last_funding_settlement_ts[symbol] = current_boundary
+            self.log.info("funding_settled",
+                          symbol=symbol, rate=fr["rate"],
+                          price=price, size=pos.size,
+                          new_equity=self.ledger.equity)
+            self._write_snapshot({
+                "timestamp": current_boundary, "symbol": symbol,
+                "action": "funding_settlement",
+                "funding_rate": fr["rate"],
+                "position_size": pos.size if pos.side == "long" else -pos.size,
+                "settlement_price": price,
+                "post_settlement_equity": self.ledger.equity,
+            })
+
     def tick(self):
         """One iteration: for each symbol, fetch latest features, process
         any new bar, save state."""
@@ -385,9 +476,15 @@ class ShadowRunner:
             self.last_seen_ts[symbol] = latest_ts
             newly_processed += 1
 
+        # Funding settlement runs AFTER symbol processing so we've refreshed
+        # `_latest_features` with the current market prices used to compute
+        # the position mark for funding.
+        self._maybe_settle_funding()
+
         if newly_processed > 0:
             self._save_ledger()
             self._save_last_seen_ts()
+            self._save_funding_settle_ts()
             self.log.info("tick_done",
                           processed=newly_processed,
                           equity=self.ledger.equity,
@@ -418,6 +515,7 @@ class ShadowRunner:
         finally:
             self._save_ledger()
             self._save_last_seen_ts()
+            self._save_funding_settle_ts()
             self.log.info("shadow_stopped",
                           equity=self.ledger.equity,
                           open_positions=len(self.ledger.open_positions),
