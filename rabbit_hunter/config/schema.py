@@ -109,6 +109,34 @@ class CircuitBreakerConfig(BaseModel):
     emergency_close_on_shock: bool = True
 
 
+class BtcCrashBoostConfig(BaseModel):
+    """v0.1.3: on BTC systemic-crash bars, uplift same-side short orders.
+    Cluster analysis showed 10 mass-crash days generated $21 per trade avg
+    vs $9 on other days — a real edge worth pressing when it appears."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    # BTC symbol used as the market beacon.
+    btc_symbol: str = "BTC-USDT-SWAP"
+    # Trigger when BTC zscore_20 <= -this AND btc close < prior close.
+    zscore_threshold: float = Field(gt=0, default=2.0)
+    # How much to scale short-side orders on triggered bars.
+    boost_multiplier: float = Field(ge=1.0, default=1.2)
+
+
+class ChopKillSwitchConfig(BaseModel):
+    """v0.1.3: pause new entries after a streak of low-winrate closes.
+    Cluster analysis showed 2025Q2-Q4 (chop regime) drove 3 consecutive losing
+    quarters; a rolling-WR gate exits early instead of pushing through."""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    # How many most-recent closed trades to look at.
+    window: int = Field(gt=0, default=10)
+    # If winrate over the window falls below this, pause.
+    wr_threshold: float = Field(ge=0, le=1, default=0.35)
+    # Number of main-interval bars to stay paused before evaluating again.
+    pause_bars: int = Field(gt=0, default=48)
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data: DataConfig
@@ -121,3 +149,5 @@ class AppConfig(BaseModel):
     hard_rules: HardRulesConfig = Field(default_factory=HardRulesConfig)
     portfolio_risk: PortfolioRiskConfig = Field(default_factory=PortfolioRiskConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    chop_kill_switch: ChopKillSwitchConfig = Field(default_factory=ChopKillSwitchConfig)
+    btc_crash_boost: BtcCrashBoostConfig = Field(default_factory=BtcCrashBoostConfig)

@@ -23,6 +23,15 @@ class TFParams:
     # maps to a full 1.0 contribution before clipping.
     funding_weight: float = 0.20
     funding_threshold: float = 0.0003  # 0.03% per 8-hour interval
+    # Extreme-momentum gate (v0.1.3): if enabled, zero out the score unless the
+    # bar shows extreme momentum in the trade direction. Cluster analysis of
+    # 273 trades showed Cluster 4 (trend continuation without extreme momentum,
+    # WR 0%) is a pure loser while Cluster 1 (deep-oversold / -overbought
+    # momentum breakdown, WR 62% on crash days) carries most of the alpha.
+    require_extreme_momentum: bool = False
+    rsi_short_threshold: float = 30.0   # RSI at or below → short-side OK
+    rsi_long_threshold: float = 70.0    # RSI at or above → long-side OK
+    zscore_extreme_threshold: float = 1.5  # |z-score| at or above → OK either way
 
 
 def _clip01(x: float) -> float:
@@ -37,7 +46,7 @@ class TrendFollowing(BaseStrategy):
     """Trend-following strategy: EMA stack + ADX/DI + volume + 15m confirm."""
 
     name = "trend_following"
-    version = "0.1.2"
+    version = "0.1.3"
 
     # Weights rebalanced when funding factor was added (v0.1.2). Sum of
     # (W_EMA + W_ADX + W_VOL + W_CONF + funding_weight) must equal 1.0.
@@ -148,6 +157,24 @@ class TrendFollowing(BaseStrategy):
             + p.funding_weight * funding_short
         )
 
+        # v0.1.3 extreme-momentum gate: kills Cluster-4 (trend continuation
+        # without extreme momentum, WR 0%) while preserving Cluster-1
+        # (deep-oversold / -overbought momentum breakdown).
+        momentum_gate_long = 1.0
+        momentum_gate_short = 1.0
+        if p.require_extreme_momentum:
+            rsi = features_row.get("rsi_14")
+            zscore = features_row.get("zscore_20")
+            rsi_val = float(rsi) if rsi is not None and not (isinstance(rsi, float) and math.isnan(rsi)) else 50.0
+            z_val = float(zscore) if zscore is not None and not (isinstance(zscore, float) and math.isnan(zscore)) else 0.0
+            extreme_up = (rsi_val >= p.rsi_long_threshold) or (z_val >= p.zscore_extreme_threshold)
+            extreme_dn = (rsi_val <= p.rsi_short_threshold) or (z_val <= -p.zscore_extreme_threshold)
+            momentum_gate_long = 1.0 if extreme_up else 0.0
+            momentum_gate_short = 1.0 if extreme_dn else 0.0
+
+        long_score *= momentum_gate_long
+        short_score *= momentum_gate_short
+
         return ScoreOutput(
             long=_clip01(long_score),
             short=_clip01(short_score),
@@ -165,5 +192,7 @@ class TrendFollowing(BaseStrategy):
                 "di_long": di_long,
                 "di_short": di_short,
                 "funding_rate": funding_rate,
+                "momentum_gate_long": momentum_gate_long,
+                "momentum_gate_short": momentum_gate_short,
             },
         )

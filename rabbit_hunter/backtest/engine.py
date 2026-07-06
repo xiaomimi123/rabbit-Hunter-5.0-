@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -10,6 +11,7 @@ from rabbit_hunter.strategy_router.router import StrategyRouter
 from rabbit_hunter.risk_engine.engine import RiskEngine, RiskContext
 from rabbit_hunter.risk_engine.portfolio_risk import PortfolioRiskEngine
 from rabbit_hunter.risk_engine.circuit_breaker import CircuitBreaker
+from rabbit_hunter.risk_engine.btc_crash_booster import BtcCrashBooster
 from rabbit_hunter.execution_engine.backtest_executor import BacktestExecutor
 from .ledger import Ledger, TrailingConfig
 
@@ -54,6 +56,16 @@ class BacktestEngine:
         # PortfolioRiskEngine needs features_by_symbol which arrives in run();
         # defer construction to run() so we can seed the correlation matrix.
         self._portfolio_risk: PortfolioRiskEngine | None = None
+        # v0.1.3 chop-market kill switch: rolling WR of most recent N closed
+        # trades. When it drops below wr_threshold, new entries are blocked
+        # for pause_bars main-interval bars.
+        self._chop_cfg = app_config.chop_kill_switch
+        self._recent_pnl: deque[float] = deque(maxlen=self._chop_cfg.window)
+        self._paused_until_ts: int | None = None
+        # 1H = 3_600_000 ms (main_interval currently hard-locked to 1H).
+        self._bar_ms = 3_600_000
+        # v0.1.3 BTC-crash size booster: press the edge on systemic drops.
+        self._btc_booster = BtcCrashBooster(app_config.btc_crash_boost)
 
     def run(
         self,
@@ -115,6 +127,7 @@ class BacktestEngine:
                         )
                         trade = ledger.record_exit(fill, exit_snapshot=row)
                         daily_realized[day_str] += trade["pnl_after_fees"]
+                        self._on_trade_closed(trade, ts)
                     snapshots.append({
                         "timestamp": ts,
                         "symbol": symbol,
@@ -148,9 +161,25 @@ class BacktestEngine:
                     )
                     for t in trades:
                         daily_realized[day_str] += t["pnl_after_fees"]
+                        self._on_trade_closed(t, ts)
 
                 # 如果已有该 symbol 仓位，不再开新单
                 if symbol in ledger.open_positions:
+                    continue
+
+                # v0.1.3 chop-market kill switch: block new entries while
+                # paused. Existing positions still exit normally above.
+                if self._chop_cfg.enabled and self._paused_until_ts is not None \
+                        and ts < self._paused_until_ts:
+                    snapshots.append({
+                        "timestamp": ts,
+                        "symbol": symbol,
+                        "action": "chop_paused",
+                        "conviction": 0.0,
+                        "long_score": {},
+                        "order_placed": False,
+                        "chop_paused_until_ts": self._paused_until_ts,
+                    })
                     continue
 
                 # 硬规则闸门：流动性/极端波动率过滤，拒绝的行不算作交易决策
@@ -200,6 +229,33 @@ class BacktestEngine:
                     else:
                         order = pr.adjusted_order
 
+                # === v0.1.3: BTC crash size booster ===
+                # Runs AFTER portfolio_risk so its output size respects the
+                # gross-leverage cap. We fetch the current-bar BTC row from
+                # features_by_symbol (may be missing if BTC not in the basket).
+                btc_boost_reason = ""
+                btc_boost_mult = 1.0
+                if order is not None:
+                    btc_sym = self.cfg.btc_crash_boost.btc_symbol
+                    btc_row = None
+                    btc_prev_close = None
+                    btc_feats = features_by_symbol.get(btc_sym)
+                    if btc_feats is not None:
+                        btc_idx = indexes.get(btc_sym, {}).get(ts)
+                        if btc_idx is not None and btc_idx > 0:
+                            btc_row = btc_feats.iloc[btc_idx].to_dict()
+                            btc_prev_close = float(btc_feats.iloc[btc_idx - 1]["close"])
+                    boost = self._btc_booster.evaluate(
+                        candidate=order,
+                        btc_row=btc_row,
+                        btc_prev_close=btc_prev_close,
+                        equity=ledger.equity,
+                    )
+                    if boost.boosted:
+                        order = boost.adjusted_order
+                        btc_boost_reason = boost.reason
+                        btc_boost_mult = boost.multiplier
+
                 snap = {
                     "timestamp": ts,
                     "symbol": symbol,
@@ -209,6 +265,8 @@ class BacktestEngine:
                     "order_placed": order is not None,
                     "portfolio_risk_reasons": portfolio_reasons,
                     "portfolio_size_multiplier": portfolio_multiplier,
+                    "btc_boost_reason": btc_boost_reason,
+                    "btc_boost_multiplier": btc_boost_mult,
                 }
                 snapshots.append(snap)
 
@@ -229,3 +287,21 @@ class BacktestEngine:
         snap_df = pd.DataFrame(snapshots)
         eq_df = pd.DataFrame(equity_points)
         return BacktestResult(ledger=ledger, snapshots=snap_df, equity_curve=eq_df)
+
+    def _on_trade_closed(self, trade: dict, ts: int) -> None:
+        """Update the rolling-WR window and, if it drops below threshold,
+        engage the chop kill switch for the configured pause_bars."""
+        if not self._chop_cfg.enabled:
+            return
+        pnl = float(trade.get("pnl_after_fees", 0.0))
+        self._recent_pnl.append(pnl)
+        # Only evaluate once the window is full — otherwise a single early
+        # loss trips it immediately.
+        if len(self._recent_pnl) < self._chop_cfg.window:
+            return
+        wr = sum(1 for x in self._recent_pnl if x > 0) / self._chop_cfg.window
+        if wr < self._chop_cfg.wr_threshold:
+            self._paused_until_ts = ts + self._chop_cfg.pause_bars * self._bar_ms
+            # Reset window so the next evaluation is measured on trades that
+            # closed AFTER the pause — otherwise the same losers keep re-tripping.
+            self._recent_pnl.clear()

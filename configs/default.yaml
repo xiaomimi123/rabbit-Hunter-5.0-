@@ -67,3 +67,15 @@ circuit_breaker:
   enabled: true
   atr_shock_multiplier: 3.0
   emergency_close_on_shock: true
+
+chop_kill_switch:
+  enabled: true
+  window: 10
+  wr_threshold: 0.35
+  pause_bars: 48
+
+btc_crash_boost:
+  enabled: true
+  btc_symbol: "BTC-USDT-SWAP"
+  zscore_threshold: 2.5
+  boost_multiplier: 1.2
