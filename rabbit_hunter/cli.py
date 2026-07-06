@@ -36,8 +36,9 @@ def fetch(
     log = get_logger("cli.fetch")
     cfg = load_config(config)
     from rabbit_hunter.data_engine.okx_fetcher import (
-        fetch_ohlcv, fetch_funding_rate_history, fetch_open_interest_history,
+        fetch_ohlcv, fetch_open_interest_history,
     )
+    from rabbit_hunter.data_engine.binance_funding import fetch_funding_rate_history_binance
     from rabbit_hunter.data_engine.quality import check_ohlcv
     from rabbit_hunter.data_engine.storage import write_ohlcv
 
@@ -53,12 +54,15 @@ def fetch(
             log.info("fetch_done", symbol=symbol, interval=interval,
                      rows=len(qr.clean_df), issues=len(qr.issues), files=[str(p) for p in paths])
 
-        # funding + OI 每个 symbol 只拉一次（1H 时序）
-        fr = fetch_funding_rate_history(symbol, start_ms, end_ms)
+        # funding from Binance (deep history: 3+ years vs OKX ~90 days).
+        # OI still from OKX (matches trading target; OKX-only limitation).
+        log.info("fetch_funding_start", symbol=symbol, source="binance")
+        fr = fetch_funding_rate_history_binance(symbol, start_ms, end_ms)
         oi = fetch_open_interest_history(symbol, start_ms, end_ms)
         (data_root / "raw" / "okx" / symbol).mkdir(parents=True, exist_ok=True)
         fr.to_parquet(data_root / "raw" / "okx" / symbol / "funding.parquet", index=False)
         oi.to_parquet(data_root / "raw" / "okx" / symbol / "oi.parquet", index=False)
+        log.info("fetch_funding_done", symbol=symbol, funding_rows=len(fr), oi_rows=len(oi))
     typer.echo("fetch done")
 
 
