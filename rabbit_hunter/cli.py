@@ -282,6 +282,7 @@ def ml_train(
     output_root: Path = typer.Option(Path("models"), "--out", help="Where to save the trained model"),
     reports_root: Path = typer.Option(Path("reports"), help="Reports root when --report-dir not given"),
     train_fraction: float = typer.Option(0.7, help="Fraction for walk-forward train split"),
+    model_type: str = typer.Option("logistic", "--model", help="Model type: 'logistic' or 'lightgbm'"),
 ):
     """Train a logistic regression scoring model from a backtest's trades.parquet.
 
@@ -313,6 +314,7 @@ def ml_train(
         trades=trades,
         output_root=output_root,
         train_fraction=train_fraction,
+        model_type=model_type,
     )
     typer.echo(f"# Trained model v{result.model_version}")
     typer.echo(f"# n_train={result.n_train}, n_test={result.n_test}")
