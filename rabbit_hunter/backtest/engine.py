@@ -8,6 +8,8 @@ from rabbit_hunter.scoring_engine.base import BaseStrategy
 from rabbit_hunter.scoring_engine import pass_hard_rules, HardRulesParams
 from rabbit_hunter.strategy_router.router import StrategyRouter
 from rabbit_hunter.risk_engine.engine import RiskEngine, RiskContext
+from rabbit_hunter.risk_engine.portfolio_risk import PortfolioRiskEngine
+from rabbit_hunter.risk_engine.circuit_breaker import CircuitBreaker
 from rabbit_hunter.execution_engine.backtest_executor import BacktestExecutor
 from .ledger import Ledger, TrailingConfig
 
@@ -48,6 +50,10 @@ class BacktestEngine:
             activation_r=app_config.risk.trailing_activation_r,
             atr_multiplier=app_config.risk.trailing_atr_multiplier,
         )
+        self._circuit_breaker = CircuitBreaker(app_config.circuit_breaker)
+        # PortfolioRiskEngine needs features_by_symbol which arrives in run();
+        # defer construction to run() so we can seed the correlation matrix.
+        self._portfolio_risk: PortfolioRiskEngine | None = None
 
     def run(
         self,
@@ -59,6 +65,10 @@ class BacktestEngine:
         if open_action_threshold is None:
             open_action_threshold = self.cfg.strategy_router.open_action_threshold
         ledger = Ledger(initial_capital=self.cfg.backtest.initial_capital)
+        # Seed portfolio risk with the features frame (needed for correlations)
+        self._portfolio_risk = PortfolioRiskEngine(
+            self.cfg.portfolio_risk, features_by_symbol
+        )
 
         # 合并所有 symbol 的 timestamps 并按顺序处理
         all_ts = sorted({int(ts) for df in features_by_symbol.values() for ts in df["timestamp"]})
@@ -89,6 +99,33 @@ class BacktestEngine:
                 atr_raw = row.get("atr_14")
                 atr = float(atr_raw) if pd.notna(atr_raw) else 0.0
                 prices_at_ts[symbol] = price
+
+                # === Phase 3: Circuit breaker (extreme volatility) ===
+                # Runs BEFORE anything else. If tripped, emergency-close any
+                # position on this symbol and refuse new entries this bar.
+                cb_result = self._circuit_breaker.check(row)
+                if cb_result.tripped:
+                    if (self.cfg.circuit_breaker.emergency_close_on_shock
+                            and symbol in ledger.open_positions):
+                        pos = ledger.open_positions[symbol]
+                        fill = self.executor.close_at(
+                            symbol=symbol, side=pos.side, size=pos.size,
+                            price=price, timestamp=ts, atr=atr,
+                            reason="circuit_breaker",
+                        )
+                        trade = ledger.record_exit(fill, exit_snapshot=row)
+                        daily_realized[day_str] += trade["pnl_after_fees"]
+                    snapshots.append({
+                        "timestamp": ts,
+                        "symbol": symbol,
+                        "action": "circuit_breaker",
+                        "conviction": 0.0,
+                        "long_score": {},
+                        "order_placed": False,
+                        "circuit_breaker_reason": cb_result.reason,
+                        "atr_ratio": cb_result.atr_ratio,
+                    })
+                    continue
 
                 # 结算 funding（每 8 小时）
                 dt = pd.to_datetime(ts, unit="ms", utc=True)
@@ -147,6 +184,22 @@ class BacktestEngine:
                 )
                 order = self.risk.size(intent, ctx)
 
+                # === Phase 3: Portfolio-level risk gate ===
+                portfolio_reasons: list[str] = []
+                portfolio_multiplier = 1.0
+                if order is not None and self._portfolio_risk is not None:
+                    pr = self._portfolio_risk.evaluate(
+                        candidate=order,
+                        open_positions=ledger.open_positions,
+                        equity=ledger.equity,
+                    )
+                    portfolio_reasons = pr.reasons
+                    portfolio_multiplier = pr.size_multiplier
+                    if not pr.accepted:
+                        order = None
+                    else:
+                        order = pr.adjusted_order
+
                 snap = {
                     "timestamp": ts,
                     "symbol": symbol,
@@ -154,6 +207,8 @@ class BacktestEngine:
                     "conviction": intent.conviction,
                     "long_score": intent.contributing_strategies,
                     "order_placed": order is not None,
+                    "portfolio_risk_reasons": portfolio_reasons,
+                    "portfolio_size_multiplier": portfolio_multiplier,
                 }
                 snapshots.append(snap)
 
