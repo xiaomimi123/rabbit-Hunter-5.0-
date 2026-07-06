@@ -807,6 +807,34 @@ def shadow_watchdog(
     raise typer.Exit(code=2)
 
 
+@shadow_app.command("digest")
+def shadow_digest(
+    state_dir: Path = typer.Option(Path("shadows"),
+                                    help="State root to summarize"),
+    trade_baseline: Path = typer.Option(
+        None, "--trade-baseline",
+        help="baselines/*.json for trade-outcome drift"),
+    feature_baseline: Path = typer.Option(
+        None, "--feature-baseline",
+        help="baselines/features_*.json for feature-distribution drift"),
+    out: Path = typer.Option(None, "--out",
+                              help="Write markdown here (else stdout)"),
+):
+    """One-shot daily digest: health + cluster performance + trade drift +
+    feature drift + recent alerts. Meant for cron; pipe to Slack/email.
+    """
+    from rabbit_hunter.shadow.digest import render
+    md = render(state_dir=state_dir,
+                trade_baseline_path=trade_baseline,
+                feature_baseline_path=feature_baseline)
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(md, encoding="utf-8")
+        typer.echo(f"digest: {out}")
+    else:
+        typer.echo(md)
+
+
 @shadow_app.command("dashboard")
 def shadow_dashboard(
     state_dir: Path = typer.Option(Path("shadows"), help="State root to render"),
