@@ -1095,5 +1095,29 @@ def config_snapshot(
         typer.echo(f"hash:     {entry.config_hash}")
 
 
+@app.command("serve")
+def serve(
+    host: str = typer.Option("0.0.0.0", "--host"),
+    port: int = typer.Option(8080, "--port"),
+    root: Path = typer.Option(Path("."), "--root",
+                                help="Project root — where reports/, shadows/, "
+                                     "models/, baselines/, configs/ live"),
+    reload: bool = typer.Option(False, "--reload",
+                                  help="Enable uvicorn auto-reload (dev only)"),
+):
+    """Start the operator console — HTTP API + dark-themed SPA at http://host:port/
+
+    Reads state from the mounted project tree (reports/, shadows/, models/,
+    baselines/, configs/). Read-only — mutations still happen via CLI.
+    """
+    import uvicorn
+    from rabbit_hunter.web.app import create_app
+    from rabbit_hunter.web.paths import Paths
+    web_app = create_app(Paths(root=root))
+    typer.echo(f"→ http://{host}:{port}  (root={root.resolve()})")
+    uvicorn.run(web_app, host=host, port=port, reload=reload,
+                log_level="info", access_log=False)
+
+
 if __name__ == "__main__":
     app()

@@ -14,5 +14,7 @@ services:
       - ../models:/app/models
       - ../shadows:/app/shadows
       - ../baselines:/app/baselines
+    ports:
+      - "8080:8080"
     working_dir: /app
     tty: true
