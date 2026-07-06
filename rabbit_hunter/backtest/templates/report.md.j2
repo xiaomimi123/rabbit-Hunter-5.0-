@@ -1,0 +1,55 @@
+# Rabbit Hunter 回测报告 · {{ run_id }}
+
+## 元数据
+- 回测区间: {{ start }} → {{ end }}
+- 标的: {{ symbols | join(', ') }}
+- 主周期: {{ main_interval }} 确认周期: {{ confirm_interval }}
+- 启用策略: {{ strategies | join(', ') }}
+- 配置 hash: `{{ config_hash }}`
+- Git commit: `{{ git_commit }}`
+
+## 收益概况
+| 指标 | 数值 |
+|---|---|
+| 总收益率 | {{ stats.total_return_pct }}% |
+| 年化收益率 | {{ stats.annualized_return_pct }}% |
+| 最大回撤 | {{ stats.max_drawdown_pct }}% |
+| 夏普比率 | {{ stats.sharpe }} |
+| 交易笔数 | {{ stats.trade_count }} |
+| 胜率 | {{ stats.win_rate_pct }}% |
+| 盈亏比 | {{ stats.profit_factor }} |
+
+![净值曲线](charts/equity_curve.png)
+
+## 分标的表现
+| Symbol | 收益率 | 胜率 | 交易笔数 |
+|---|---|---|---|
+{% for row in per_symbol -%}
+| {{ row.symbol }} | {{ row.return_pct }}% | {{ row.win_rate_pct }}% | {{ row.count }} |
+{% endfor %}
+
+## 分策略贡献
+| 策略 | 平均 long 分 | 触发次数 |
+|---|---|---|
+{% for row in per_strategy -%}
+| {{ row.strategy }} | {{ row.avg_long }} | {{ row.trigger_count }} |
+{% endfor %}
+
+## 月度盈亏
+![月度盈亏](charts/monthly_pnl.png)
+
+## 亏损最大的 10 笔
+| 时间 | Symbol | 方向 | 入场 | 出场 | PnL | 出场原因 |
+|---|---|---|---|---|---|---|
+{% for t in worst_trades -%}
+| {{ t.entry_time }} | {{ t.symbol }} | {{ t.side }} | {{ t.entry_price }} | {{ t.exit_price }} | {{ t.pnl_after_fees }} | {{ t.exit_reason }} |
+{% endfor %}
+
+## 决策快照汇总
+- 快照总数: {{ snapshot_count }}
+- 快照文件: `snapshots.parquet`
+
+## 配置全文
+```yaml
+{{ config_yaml }}
+```

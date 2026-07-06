@@ -1,0 +1,47 @@
+data:
+  exchange: okx
+  symbols: [BTC-USDT-SWAP, ETH-USDT-SWAP]
+  main_interval: "1H"
+  confirm_interval: "15m"
+  history_window_days: 730
+
+feature_engine:
+  version: "0.1.0"
+  cache_enabled: true
+
+strategy_router:
+  composer: weighted_avg
+  enabled_strategies:
+    trend_following:
+      weight: 1.0
+      config_file: strategies/trend_following.yaml
+
+risk:
+  risk_per_trade_pct: 1.0
+  atr_stop_multiplier: 1.5
+  reward_risk_ratio: 2.0
+  max_leverage: 3
+  daily_max_loss_pct: 3.0
+  hold_timeout_bars: 48
+
+execution:
+  fees:
+    maker: 0.0002
+    taker: 0.0005
+  slippage_atr_multiplier: 0.1
+  funding_settlement: true
+
+backtest:
+  start: "2024-07-05"
+  end: "2026-07-05"
+  initial_capital: 10000
+
+report:
+  output_dir: reports
+  ai_context: true
+
+hard_rules:
+  enabled: true
+  min_quote_volume_24h: 1000000.0
+  atr_pct_max_multiplier: 5.0
+  atr_pct_baseline_window: 500
