@@ -18,11 +18,11 @@ strategy_router:
 
 risk:
   risk_per_trade_pct: 1.0
-  atr_stop_multiplier: 1.5
-  reward_risk_ratio: 2.0
+  atr_stop_multiplier: 2.5
+  reward_risk_ratio: 2.5
   max_leverage: 3
   daily_max_loss_pct: 3.0
-  hold_timeout_bars: 48
+  hold_timeout_bars: 96
 
 execution:
   fees:
