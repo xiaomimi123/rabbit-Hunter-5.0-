@@ -13,5 +13,6 @@ services:
       - ../tests:/app/tests
       - ../models:/app/models
       - ../shadows:/app/shadows
+      - ../baselines:/app/baselines
     working_dir: /app
     tty: true

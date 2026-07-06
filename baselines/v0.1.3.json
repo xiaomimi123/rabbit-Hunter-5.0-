@@ -1,0 +1,26 @@
+{
+  "tag": "v0.1.3",
+  "created_at_utc": "2026-07-06T13:31:00+00:00",
+  "source_report_dir": "reports/2026-07-06-1223",
+  "total_trades": 220,
+  "clusters": [
+    {
+      "cluster": "1_momentum_breakdown",
+      "n": 167,
+      "winrate": 0.5149700598802395,
+      "avg_pnl": 14.219982221644402,
+      "sharpe_est": 4.365976900119807,
+      "profit_factor": 1.7183911698499714,
+      "pnl_std": 62.224877754057026
+    },
+    {
+      "cluster": "2_momentum_breakout",
+      "n": 53,
+      "winrate": 0.4716981132075472,
+      "avg_pnl": 9.207080021757767,
+      "sharpe_est": 2.377874067557927,
+      "profit_factor": 1.3281638220243928,
+      "pnl_std": 73.97406752166701
+    }
+  ]
+}

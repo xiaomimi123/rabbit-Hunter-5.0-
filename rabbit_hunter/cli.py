@@ -463,6 +463,89 @@ def data_health(
         raise typer.Exit(code=1)
 
 
+@app.command("baseline")
+def baseline_cmd(
+    report_dir: Path = typer.Argument(..., help="Backtest report to snapshot"),
+    out: Path = typer.Option(Path("baselines/latest.json"),
+                              help="Output JSON path"),
+    tag: str = typer.Option("baseline", "--tag",
+                             help="Tag identifier (e.g. v0.1.3)"),
+):
+    """Snapshot per-cluster baseline stats from a backtest report.
+
+    Later `rabbit shadow drift` compares live shadow performance against
+    this baseline. Baselines are checked into git (JSON, not pickle) so
+    they diff cleanly across strategy versions.
+    """
+    from rabbit_hunter.analytics.cluster_performance import analyze
+    from rabbit_hunter.analytics.baseline import (
+        build_baseline_from_report, save,
+    )
+    trades_path = report_dir / "trades.parquet"
+    if not trades_path.exists():
+        typer.echo(f"no trades.parquet at {trades_path}")
+        raise typer.Exit(code=1)
+    df = pd.read_parquet(trades_path)
+    report = analyze(df, schema="backtest")
+    snap = build_baseline_from_report(
+        report, tag=tag, source_report_dir=str(report_dir),
+    )
+    save(snap, out)
+    typer.echo(f"baseline: {out} (clusters={len(snap.clusters)}, "
+               f"total_trades={snap.total_trades})")
+
+
+@shadow_app.command("drift")
+def shadow_drift(
+    baseline_path: Path = typer.Option(Path("baselines/latest.json"),
+                                        help="Baseline JSON to compare against"),
+    state_dir: Path = typer.Option(Path("shadows"), help="Shadow state root"),
+    winrate_delta_alert: float = typer.Option(0.15,
+                                                help="|Δ WR| pp that triggers"),
+    zscore_alert: float = typer.Option(2.5,
+                                        help="|z| of avg PnL that triggers"),
+    min_live_trades: int = typer.Option(20,
+                                          help="Min live n before a cluster can trigger"),
+    fail_on_alert: bool = typer.Option(False, "--fail-on-alert",
+                                        help="Exit non-zero if drift detected"),
+):
+    """Check whether live shadow performance has drifted from the baseline.
+
+    Loads baseline.json, runs cluster analysis on the shadow ledger, and
+    reports per-cluster Δ WR and z-score of avg PnL. Meant for cron —
+    a non-zero exit becomes a page.
+    """
+    import pickle
+    from rabbit_hunter.analytics.baseline import load
+    from rabbit_hunter.analytics.cluster_performance import analyze
+    from rabbit_hunter.analytics.drift import compare, DriftThresholds
+
+    if not baseline_path.exists():
+        typer.echo(f"no baseline at {baseline_path}")
+        raise typer.Exit(code=2)
+    ledger_p = state_dir / "state" / "ledger.pkl"
+    if not ledger_p.exists():
+        typer.echo(f"no ledger at {ledger_p}")
+        raise typer.Exit(code=2)
+
+    baseline = load(baseline_path)
+    with ledger_p.open("rb") as f:
+        ledger = pickle.load(f)
+    if not ledger.closed_trades:
+        typer.echo("No shadow closed trades yet — nothing to compare.")
+        raise typer.Exit(code=0)
+    live = analyze(pd.DataFrame(ledger.closed_trades), schema="shadow")
+    report = compare(baseline, live, DriftThresholds(
+        winrate_delta_alert=winrate_delta_alert,
+        avg_pnl_zscore_alert=zscore_alert,
+        min_live_trades=min_live_trades,
+    ))
+    for line in report.as_lines():
+        typer.echo(line)
+    if fail_on_alert and not report.ok:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def clusters(
     report_dir: Path = typer.Argument(..., help="Backtest report dir (contains trades.parquet)"),
