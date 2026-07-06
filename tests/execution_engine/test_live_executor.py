@@ -129,6 +129,9 @@ def test_oversized_order_refused_before_hitting_exchange():
 # ============================================================
 
 def test_enabled_submit_calls_exchange_with_correct_side_and_size():
+    """The mock stands in for an ExchangeAdapter now (LiveExecutor
+    delegates symbol conversion to the adapter), so create_market_order
+    receives the internal-form symbol."""
     mock_ex = MagicMock()
     mock_ex.create_market_order.return_value = {
         "average": 50_010.0, "filled": 0.01, "fee": {"cost": 0.25},
@@ -142,7 +145,7 @@ def test_enabled_submit_calls_exchange_with_correct_side_and_size():
                      _next_bar(), atr=100.0)
     mock_ex.create_market_order.assert_called_once()
     args = mock_ex.create_market_order.call_args
-    assert args.kwargs["symbol"] == "BTC/USDT:USDT"
+    assert args.kwargs["symbol"] == "BTC-USDT-SWAP"    # internal form
     assert args.kwargs["side"] == "buy"
     assert args.kwargs["amount"] == 0.01
     assert args.kwargs["params"]["tdMode"] == "cross"
@@ -187,6 +190,7 @@ def test_enabled_close_sends_reduce_only():
 # ============================================================
 
 def test_fetch_exchange_positions_flattens_ccxt_response():
+    """Adapter's from_native_symbol handles the reverse mapping now."""
     mock_ex = MagicMock()
     mock_ex.fetch_positions.return_value = [
         {"symbol": "BTC/USDT:USDT", "side": "long",
@@ -197,6 +201,10 @@ def test_fetch_exchange_positions_flattens_ccxt_response():
         {"symbol": "SOL/USDT:USDT", "side": "long",
          "contracts": 0.0, "entryPrice": 0.0},
     ]
+    # Adapter's from_native_symbol maps ccxt form → internal form
+    mock_ex.from_native_symbol.side_effect = lambda s: (
+        s.replace("/", "-").replace(":USDT", "-SWAP")
+    )
     ex = LiveExecutor(
         _exec_cfg(), _live_cfg(enabled=True),
         exchange_factory=lambda: mock_ex,

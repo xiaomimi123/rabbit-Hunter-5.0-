@@ -73,8 +73,12 @@ class LiveExecutor(BaseExecutor):
     # ------------------------------------------------------------------
 
     def _build_exchange(self) -> Any:
-        """Construct the ccxt client from env credentials. Refuses to
-        return if any required env var is empty."""
+        """Construct the exchange adapter from env credentials. Refuses
+        to return if any required env var is empty.
+
+        Uses the exchanges factory rather than instantiating a ccxt
+        client directly, so switching exchanges is a config edit
+        (live_execution.exchange), not a code edit."""
         if self._exchange_factory is not None:
             return self._exchange_factory()
         key = os.environ.get(self.live_cfg.api_key_env, "")
@@ -90,17 +94,12 @@ class LiveExecutor(BaseExecutor):
                 f"live_execution enabled but env vars empty: {missing}. "
                 "Set them or disable live_execution.enabled."
             )
-        import ccxt
-        cls = ccxt.okx
-        client = cls({
-            "apiKey": key,
-            "secret": secret,
-            "password": passphrase,
-            "enableRateLimit": True,
-        })
-        if self.live_cfg.testnet:
-            client.set_sandbox_mode(True)
-        return client
+        from rabbit_hunter.exchanges.base import get_exchange
+        return get_exchange(
+            self.live_cfg.exchange,
+            api_key=key, api_secret=secret, api_passphrase=passphrase,
+            testnet=self.live_cfg.testnet,
+        )
 
     # ------------------------------------------------------------------
     # Simulated fallback (matches BacktestExecutor arithmetic)
@@ -165,12 +164,13 @@ class LiveExecutor(BaseExecutor):
         assert self._exchange is not None
         from rabbit_hunter.data_engine.retry import call_with_retry
         self._check_notional_cap(order)
-        ccxt_symbol = self._to_ccxt_symbol(order.symbol)
         side = "buy" if order.side == "long" else "sell"
 
+        # Adapter owns the exchange-specific symbol conversion — LiveExecutor
+        # passes the internal form and stays exchange-agnostic.
         def _place():
             return self._exchange.create_market_order(
-                symbol=ccxt_symbol, side=side, amount=order.size,
+                symbol=order.symbol, side=side, amount=order.size,
                 params={"tdMode": "cross"},
             )
         result = call_with_retry(_place, max_attempts=3)
@@ -195,11 +195,11 @@ class LiveExecutor(BaseExecutor):
         from rabbit_hunter.data_engine.retry import call_with_retry
         # Closing long = sell; closing short = buy
         exit_side = "sell" if side == "long" else "buy"
-        ccxt_symbol = self._to_ccxt_symbol(symbol)
 
+        # Adapter converts internal symbol → exchange-native form.
         def _place():
             return self._exchange.create_market_order(
-                symbol=ccxt_symbol, side=exit_side, amount=size,
+                symbol=symbol, side=exit_side, amount=size,
                 params={"tdMode": "cross", "reduceOnly": True},
             )
         result = call_with_retry(_place, max_attempts=3)
@@ -259,9 +259,10 @@ class LiveExecutor(BaseExecutor):
     # ------------------------------------------------------------------
 
     def fetch_exchange_positions(self) -> dict[str, dict]:
-        """Return {symbol_native: {side, size, entry_price}} straight from
-        the exchange. Returns {} if live is disabled — the reconciler
-        will treat that as "no positions to check against"."""
+        """Return {internal_symbol: {side, size, entry_price}} keyed by
+        rabbit_hunter's internal symbol form. Returns {} if live is
+        disabled — the reconciler treats that as "no positions to
+        check against"."""
         if not self.live_cfg.enabled or self._exchange is None:
             return {}
         raw = self._exchange.fetch_positions() or []
@@ -271,11 +272,11 @@ class LiveExecutor(BaseExecutor):
             contracts = float(info.get("contracts", 0) or 0)
             if contracts == 0:
                 continue
-            symbol = info.get("symbol", "")
-            # Reverse the ccxt symbol mapping.
-            native = symbol.replace("/", "-").replace(":USDT", "-SWAP")
+            native = info.get("symbol", "")
+            # Adapter owns the reverse translation to internal form.
+            internal = self._exchange.from_native_symbol(native)
             side = info.get("side", "long")
-            out[native] = {
+            out[internal] = {
                 "side": "long" if side == "long" else "short",
                 "size": abs(contracts),
                 "entry_price": float(info.get("entryPrice") or 0.0),
