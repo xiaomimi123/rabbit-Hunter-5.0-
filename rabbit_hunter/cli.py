@@ -420,6 +420,47 @@ def shadow_status(
             typer.echo(f"  {sym}: {dt}")
 
 
+@data_app.command("health")
+def data_health(
+    config: Path = typer.Option(Path("configs/default.yaml")),
+    data_root: Path = typer.Option(Path("data")),
+    intervals: str = typer.Option("1H",
+                                   help="Comma-separated intervals to check"),
+    grace_bars: int = typer.Option(2,
+                                    help="Freshness grace period in bars"),
+    fail_on_unhealthy: bool = typer.Option(False, "--fail-on-unhealthy",
+                                            help="Exit non-zero if any check fails"),
+):
+    """Scan the local data directory for freshness / gap / corruption issues.
+
+    Prints a per-(symbol, interval) status table. With --fail-on-unhealthy,
+    exits non-zero when any check is not "healthy" — usable in cron / CI.
+    """
+    from rabbit_hunter.data_engine.health import check_all, summarize
+    cfg = load_config(config)
+    interval_list = [x.strip() for x in intervals.split(",") if x.strip()]
+    reports = check_all(
+        root=data_root, symbols=list(cfg.data.symbols),
+        intervals=interval_list, freshness_grace_bars=grace_bars,
+    )
+    header = ("Symbol", "Interval", "Status", "Rows", "Last ts", "Missing", "Max gap (h)")
+    typer.echo("  ".join(f"{h:<18}" for h in header))
+    for r in reports:
+        row = r.to_row()
+        last_ts = row["last_ts"][:19] if row["last_ts"] else ""
+        typer.echo(f"{row['symbol']:<18}  {row['interval']:<18}  "
+                   f"{row['status']:<18}  {row['rows']:<18}  "
+                   f"{last_ts:<18}  {row['missing_bars']:<18}  "
+                   f"{row['max_gap_hours']}")
+        for p in r.problems:
+            typer.echo(f"    - {p}")
+    stats = summarize(reports)
+    typer.echo(f"\nsummary: {stats['healthy']}/{stats['total']} healthy "
+               f"({stats['by_status']})")
+    if fail_on_unhealthy and stats["unhealthy"] > 0:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def compare(
     reports: list[Path] = typer.Argument(..., help="Two or more report dirs"),

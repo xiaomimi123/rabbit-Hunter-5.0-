@@ -62,13 +62,23 @@ def fetch_current_funding_rate(symbol: str) -> dict[str, Any] | None:
 
 
 def fetch_ohlcv(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.DataFrame:
+    """Fetch OHLCV bars in a range. Transient exchange errors on any single
+    batch are retried up to 3 times with exponential backoff (0.5s / 1s / 2s)
+    before propagating — protects long historical backfills from a single
+    rate-limit hiccup restarting the whole pull."""
+    from rabbit_hunter.data_engine.retry import call_with_retry
+
     ex = _build_exchange()
     ccxt_symbol = _to_ccxt_symbol(symbol)
     tf = _OKX_INTERVAL_MAP[interval]
     all_rows: list[list] = []
     cursor = start_ms
     while cursor < end_ms:
-        batch = ex.fetch_ohlcv(ccxt_symbol, timeframe=tf, since=cursor, limit=_LIMIT)
+        batch = call_with_retry(
+            lambda: ex.fetch_ohlcv(ccxt_symbol, timeframe=tf, since=cursor,
+                                    limit=_LIMIT),
+            max_attempts=3,
+        )
         if not batch:
             break
         all_rows.extend(batch)
