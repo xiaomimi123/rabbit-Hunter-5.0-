@@ -39,3 +39,9 @@ backtest:
 report:
   output_dir: reports
   ai_context: true
+
+hard_rules:
+  enabled: true
+  min_quote_volume_24h: 1000000.0
+  atr_pct_max_multiplier: 5.0
+  atr_pct_baseline_window: 500

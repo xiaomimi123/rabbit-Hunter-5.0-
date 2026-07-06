@@ -66,6 +66,14 @@ class ReportConfig(BaseModel):
     ai_context: bool = True
 
 
+class HardRulesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    min_quote_volume_24h: float = 1_000_000.0
+    atr_pct_max_multiplier: float = 5.0
+    atr_pct_baseline_window: int = 500
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data: DataConfig
@@ -75,3 +83,4 @@ class AppConfig(BaseModel):
     execution: ExecutionConfig
     backtest: BacktestConfig
     report: ReportConfig
+    hard_rules: HardRulesConfig = Field(default_factory=HardRulesConfig)

@@ -5,6 +5,7 @@ from typing import Callable
 import pandas as pd
 from rabbit_hunter.config.schema import AppConfig
 from rabbit_hunter.scoring_engine.base import BaseStrategy
+from rabbit_hunter.scoring_engine import pass_hard_rules, HardRulesParams
 from rabbit_hunter.strategy_router.router import StrategyRouter
 from rabbit_hunter.risk_engine.engine import RiskEngine, RiskContext
 from rabbit_hunter.execution_engine.backtest_executor import BacktestExecutor
@@ -36,6 +37,12 @@ class BacktestEngine:
         )
         self.risk = RiskEngine(app_config.risk)
         self.executor = BacktestExecutor(app_config.execution)
+        self.hard_rules_cfg = app_config.hard_rules
+        self._hard_rules_params = HardRulesParams(
+            min_quote_volume_24h=app_config.hard_rules.min_quote_volume_24h,
+            atr_pct_max_multiplier=app_config.hard_rules.atr_pct_max_multiplier,
+            atr_pct_baseline_window=app_config.hard_rules.atr_pct_baseline_window,
+        )
 
     def run(
         self,
@@ -98,6 +105,21 @@ class BacktestEngine:
                 # 如果已有该 symbol 仓位，不再开新单
                 if symbol in ledger.open_positions:
                     continue
+
+                # 硬规则闸门：流动性/极端波动率过滤，拒绝的行不算作交易决策
+                if self.hard_rules_cfg.enabled:
+                    ok, reasons = pass_hard_rules(row, self._hard_rules_params)
+                    if not ok:
+                        snapshots.append({
+                            "timestamp": ts,
+                            "symbol": symbol,
+                            "action": "hard_reject",
+                            "conviction": 0.0,
+                            "long_score": {},
+                            "order_placed": False,
+                            "hard_reject_reasons": reasons,
+                        })
+                        continue
 
                 intent = self.router.route(
                     symbol=symbol,

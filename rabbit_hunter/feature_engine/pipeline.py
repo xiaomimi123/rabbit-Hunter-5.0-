@@ -9,12 +9,18 @@ from .price_action import compute_price_action
 from .regime import compute_regime
 
 
-def _align_1h_on_15m(main_1h: pd.DataFrame, confirm_15m: pd.DataFrame) -> pd.DataFrame:
-    """把 1H 的 ema20/adx 前向填充到 15m 时间轴。confirm_15m 必须含 timestamp。"""
-    right = main_1h[["timestamp", "ema20", "adx"]].rename(
+def _align_confirm_on_main(main_ts_df: pd.DataFrame, confirm_indicators: pd.DataFrame) -> pd.DataFrame:
+    """Align 15m confirm indicators onto the 1H main timestamps via backward merge_asof.
+
+    NOTE: column names keep the historical "_1h_on_15m" suffix for backward
+    compatibility, but the values now genuinely come from the 15m confirm
+    timeframe's own indicators (computed on `confirm_indicators`), not the
+    1H main frame's own ema20/adx.
+    """
+    right = confirm_indicators[["timestamp", "ema20", "adx"]].rename(
         columns={"ema20": "ema20_1h_on_15m", "adx": "adx_1h_on_15m"}
     ).sort_values("timestamp")
-    left = confirm_15m[["timestamp"]].sort_values("timestamp")
+    left = main_ts_df[["timestamp"]].sort_values("timestamp")
     merged = pd.merge_asof(left, right, on="timestamp", direction="backward")
     return merged
 
@@ -37,9 +43,9 @@ def build_features(
         df["oi_change_pct"] = np.nan
 
     if confirm is not None and not confirm.empty:
-        # 计算 15m 上的 indicators
+        # 计算 15m 上的 indicators，再用 backward merge_asof 对齐到 1H 主时间轴
         confirm_ind = compute_indicators(confirm.copy().reset_index(drop=True))
-        aligned = _align_1h_on_15m(df, confirm_ind)
+        aligned = _align_confirm_on_main(df, confirm_ind)
         df = df.merge(aligned, on="timestamp", how="left")
     else:
         df["ema20_1h_on_15m"] = np.nan

@@ -62,4 +62,9 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Volume ratio
     out["volume_ratio_20"] = out["volume"] / out["volume"].rolling(20).mean()
 
+    # 24h rolling quote volume: quote_volume ≈ close × volume per bar, sum over 24 bars
+    out["quote_volume_24h"] = (out["close"] * out["volume"]).rolling(24).sum()
+    # ATR% baseline: rolling median of atr_pct over configurable window (use 500 for now)
+    out["atr_pct_baseline"] = out["atr_pct"].rolling(500, min_periods=50).median()
+
     return out

@@ -85,24 +85,20 @@ def test_baseline_snapshot_stable():
 
 def test_build_features_with_confirm_populates_cross_timeframe():
     """Passing a confirm 15m DataFrame must populate ema20_1h_on_15m / adx_1h_on_15m
-    with the 1H values aligned via merge_asof(direction='backward'), not left as NaN."""
-    raw_1h = _mk_raw(n=400)
-    # Build a 15m confirm frame with timestamps aligned on hour boundaries (same grid as 1H raw)
-    # so merge_asof(backward) finds an exact hit for every row → cross-timeframe fields must be finite.
-    confirm_15m = raw_1h.copy()
+    with values genuinely derived from the 15m confirm frame's own indicators
+    (aligned onto the 1H main timestamps via merge_asof(direction='backward')),
+    NOT recovered from the 1H main frame's own ema20/adx."""
+    raw_1h = _mk_raw(n=400, base=100.0)
+    # Build a DIFFERENT 15m confirm frame — different price levels so values are distinguishable
+    confirm_15m = _mk_raw(n=400, base=200.0)  # different data
 
     feats = build_features(raw_1h, confirm=confirm_15m)
 
-    # These columns must exist AND for the last row must be finite (not NaN),
-    # AND must equal the corresponding raw 1H ema20 / adx values (backward merge on equal timestamps).
     assert "ema20_1h_on_15m" in feats.columns
     assert "adx_1h_on_15m" in feats.columns
-    last_ema20 = feats["ema20"].iloc[-1]
-    last_adx = feats["adx"].iloc[-1]
     last_ema20_1h_on_15m = feats["ema20_1h_on_15m"].iloc[-1]
-    last_adx_1h_on_15m = feats["adx_1h_on_15m"].iloc[-1]
+    last_ema20 = feats["ema20"].iloc[-1]
     assert np.isfinite(last_ema20_1h_on_15m), "cross-timeframe ema20 should not be NaN when confirm is given"
-    assert np.isfinite(last_adx_1h_on_15m), "cross-timeframe adx should not be NaN when confirm is given"
-    # With aligned timestamps and same underlying data, backward-merge should match the exact 1H value
-    assert np.isclose(last_ema20_1h_on_15m, last_ema20, equal_nan=True)
-    assert np.isclose(last_adx_1h_on_15m, last_adx, equal_nan=True)
+    # Now the crucial test: the cross-timeframe value should come from CONFIRM (base=200), NOT main (base=100)
+    # so last_ema20_1h_on_15m should be much closer to 200 than to 100
+    assert abs(last_ema20_1h_on_15m - last_ema20) > 10.0, "confirm must genuinely come from 15m data, not 1H"

@@ -97,7 +97,7 @@ def _flatten_trade_row(t: dict) -> dict:
     return row
 
 
-def _regime_conditional_performance(trades_df: pd.DataFrame) -> list[dict]:
+def _regime_conditional_performance(trades_df: pd.DataFrame, initial_capital: float) -> list[dict]:
     if trades_df.empty or "regime_t0" not in trades_df.columns:
         return []
     grouped = trades_df.groupby("regime_t0", dropna=False).agg(
@@ -108,7 +108,7 @@ def _regime_conditional_performance(trades_df: pd.DataFrame) -> list[dict]:
     ).reset_index()
     return [
         {"regime": row["regime_t0"], "count": int(row["count"]),
-         "return_pct": round(row["total_pnl"] / 10_000 * 100, 2),
+         "return_pct": round(row["total_pnl"] / initial_capital * 100, 2),
          "win_rate_pct": round(row["winrate"] * 100, 1),
          "avg_pnl": round(row["avg_pnl"], 2)}
         for _, row in grouped.iterrows()
@@ -199,7 +199,7 @@ class ReportBuilder:
         per_strategy = self._per_strategy_stats(trades_df, snap_df)
         worst_trades = self._worst_trades(trades_df, n=10)
         baselines = _compute_baselines(self.features_by_symbol, self.cfg.backtest.initial_capital)
-        regime_perf = _regime_conditional_performance(trades_df)
+        regime_perf = _regime_conditional_performance(trades_df, self.cfg.backtest.initial_capital)
         clusters = find_loss_clusters(trades_df) if not trades_df.empty else []
         feature_corr = _feature_correlation(trades_df)
 
@@ -253,17 +253,24 @@ class ReportBuilder:
     def _per_strategy_stats(self, trades_df: pd.DataFrame, snap_df: pd.DataFrame) -> list[dict]:
         strategies = list(self.cfg.strategy_router.enabled_strategies.keys())
         rows = []
+        if snap_df.empty or "long_score" not in snap_df.columns or "action" not in snap_df.columns:
+            for s in strategies:
+                rows.append({"strategy": s, "avg_long": "-", "trigger_count": 0})
+            return rows
+        active = snap_df[snap_df["action"].isin(["open_long", "open_short"])]
         for s in strategies:
+            long_scores = []
             trig = 0
-            if not snap_df.empty and "long_score" in snap_df.columns:
-                for js in snap_df["long_score"].dropna():
-                    try:
-                        d = json.loads(js) if isinstance(js, str) else js
-                        if s in d:
-                            trig += 1
-                    except Exception:
-                        continue
-            rows.append({"strategy": s, "avg_long": "-", "trigger_count": trig})
+            for js in active["long_score"].dropna():
+                try:
+                    d = json.loads(js) if isinstance(js, str) else js
+                    if s in d:
+                        trig += 1
+                        long_scores.append(float(d[s]))
+                except Exception:
+                    continue
+            avg_long = round(sum(long_scores) / len(long_scores), 3) if long_scores else "-"
+            rows.append({"strategy": s, "avg_long": avg_long, "trigger_count": trig})
         return rows
 
     def _worst_trades(self, trades_df: pd.DataFrame, n: int = 10) -> list[dict]:
