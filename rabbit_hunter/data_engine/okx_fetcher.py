@@ -1,151 +1,41 @@
+"""Thin wrapper around OKXAdapter — kept for backwards compatibility.
+
+All ccxt/OKX-specific code has moved to rabbit_hunter/exchanges/okx.py.
+This module now just exposes the same function surface downstream code
+has always used (fetch_ohlcv, fetch_orderbook_top, etc.) so existing
+imports keep working while the OKX hardcode has been removed.
+
+New code should call `get_exchange("okx")` directly and use the adapter
+methods. This wrapper stays until every call site is migrated.
+"""
 from __future__ import annotations
-import time
+
 from typing import Any
-import ccxt
+
 import pandas as pd
 
-_OKX_INTERVAL_MAP = {"1H": "1h", "15m": "15m", "1h": "1h", "5m": "5m", "1D": "1d"}
-_LIMIT = 200
-_SLEEP_MS = 200
-# OKX Open Interest history endpoint retains only the recent window.
-# Empirically ~90 days for public REST; requesting earlier returns code 50030.
-_OI_MAX_LOOKBACK_MS = 90 * 24 * 3_600_000
+from rabbit_hunter.exchanges.base import get_exchange
 
 
-def _build_exchange() -> Any:
-    return ccxt.okx({"enableRateLimit": True})
-
-
-def _to_ccxt_symbol(symbol: str) -> str:
-    # OKX 永续："BTC-USDT-SWAP" -> ccxt: "BTC/USDT:USDT"
-    base, quote, tail = symbol.split("-")
-    return f"{base}/{quote}:{quote}"
+def _adapter():
+    return get_exchange("okx")
 
 
 def fetch_orderbook_top(symbol: str) -> dict[str, float] | None:
-    """Return top-of-book bid/ask/mid for one symbol. Used by shadow mode
-    to simulate a realistic market-order fill price (buy hits ask, sell
-    hits bid) instead of using bar close as a proxy.
-
-    Returns None on any network / ccxt error — caller falls back to close.
-    """
-    try:
-        ex = _build_exchange()
-        ccxt_symbol = _to_ccxt_symbol(symbol)
-        ob = ex.fetch_order_book(ccxt_symbol, limit=1)
-        bid = float(ob["bids"][0][0]) if ob["bids"] else None
-        ask = float(ob["asks"][0][0]) if ob["asks"] else None
-        if bid is None or ask is None:
-            return None
-        return {"bid": bid, "ask": ask, "mid": (bid + ask) / 2, "spread": ask - bid}
-    except Exception:
-        return None
+    return _adapter().fetch_orderbook_top(symbol)
 
 
 def fetch_current_funding_rate(symbol: str) -> dict[str, Any] | None:
-    """Return current OKX funding rate + next settlement time for one symbol.
-    Shadow mode uses OKX's rate (not Binance's) because that's what a real
-    OKX-perpetual position would actually be charged.
-
-    Returns dict {rate, next_funding_time_ms} or None on error.
-    """
-    try:
-        ex = _build_exchange()
-        ccxt_symbol = _to_ccxt_symbol(symbol)
-        fr = ex.fetch_funding_rate(ccxt_symbol)
-        return {
-            "rate": float(fr["fundingRate"]),
-            "next_funding_time_ms": int(fr["fundingTimestamp"]),
-        }
-    except Exception:
-        return None
+    return _adapter().fetch_current_funding_rate(symbol)
 
 
 def fetch_ohlcv(symbol: str, interval: str, start_ms: int, end_ms: int) -> pd.DataFrame:
-    """Fetch OHLCV bars in a range. Transient exchange errors on any single
-    batch are retried up to 3 times with exponential backoff (0.5s / 1s / 2s)
-    before propagating — protects long historical backfills from a single
-    rate-limit hiccup restarting the whole pull."""
-    from rabbit_hunter.data_engine.retry import call_with_retry
-
-    ex = _build_exchange()
-    ccxt_symbol = _to_ccxt_symbol(symbol)
-    tf = _OKX_INTERVAL_MAP[interval]
-    all_rows: list[list] = []
-    cursor = start_ms
-    while cursor < end_ms:
-        batch = call_with_retry(
-            lambda: ex.fetch_ohlcv(ccxt_symbol, timeframe=tf, since=cursor,
-                                    limit=_LIMIT),
-            max_attempts=3,
-        )
-        if not batch:
-            break
-        all_rows.extend(batch)
-        last_ts = batch[-1][0]
-        if last_ts <= cursor:
-            break
-        cursor = last_ts + 1
-        time.sleep(_SLEEP_MS / 1000)
-    df = pd.DataFrame(all_rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df = df[df["timestamp"] < end_ms].reset_index(drop=True)
-    df = df.drop_duplicates(subset="timestamp").reset_index(drop=True)
-    return df
+    return _adapter().fetch_ohlcv(symbol, interval, start_ms, end_ms)
 
 
 def fetch_funding_rate_history(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame:
-    ex = _build_exchange()
-    ccxt_symbol = _to_ccxt_symbol(symbol)
-    rows: list[dict] = []
-    cursor = start_ms
-    while cursor < end_ms:
-        batch = ex.fetch_funding_rate_history(ccxt_symbol, since=cursor, limit=_LIMIT)
-        if not batch:
-            break
-        for r in batch:
-            rows.append({"timestamp": r["timestamp"], "funding_rate": r["fundingRate"]})
-        last_ts = batch[-1]["timestamp"]
-        if last_ts <= cursor:
-            break
-        cursor = last_ts + 1
-        time.sleep(_SLEEP_MS / 1000)
-    df = pd.DataFrame(rows, columns=["timestamp", "funding_rate"])
-    df = df.astype({"timestamp": "int64", "funding_rate": "float64"}, copy=False) if not df.empty else \
-         pd.DataFrame({"timestamp": pd.Series(dtype="int64"), "funding_rate": pd.Series(dtype="float64")})
-    df = df[df["timestamp"] < end_ms].drop_duplicates(subset="timestamp").reset_index(drop=True)
-    return df
+    return _adapter().fetch_funding_rate_history(symbol, start_ms, end_ms)
 
 
 def fetch_open_interest_history(symbol: str, start_ms: int, end_ms: int) -> pd.DataFrame:
-    """OKX Open Interest 历史。ccxt: fetch_open_interest_history。
-
-    OKX retains only ~90 days of OI history via public REST. `start_ms` is
-    clamped forward to `end_ms - _OI_MAX_LOOKBACK_MS` so callers can pass
-    long ranges without triggering exchange error 50030 (Illegal time range).
-    Transient exchange errors mid-fetch are logged and swallowed — a
-    partial series is preferable to aborting the whole backtest.
-    """
-    ex = _build_exchange()
-    ccxt_symbol = _to_ccxt_symbol(symbol)
-    effective_start = max(start_ms, end_ms - _OI_MAX_LOOKBACK_MS)
-    rows: list[dict] = []
-    cursor = effective_start
-    while cursor < end_ms:
-        try:
-            batch = ex.fetch_open_interest_history(ccxt_symbol, timeframe="1h", since=cursor, limit=_LIMIT)
-        except ccxt.ExchangeError:
-            break
-        if not batch:
-            break
-        for r in batch:
-            rows.append({"timestamp": r["timestamp"], "oi": r["openInterestAmount"]})
-        last_ts = batch[-1]["timestamp"]
-        if last_ts <= cursor:
-            break
-        cursor = last_ts + 1
-        time.sleep(_SLEEP_MS / 1000)
-    df = pd.DataFrame(rows, columns=["timestamp", "oi"])
-    df = df.astype({"timestamp": "int64", "oi": "float64"}, copy=False) if not df.empty else \
-         pd.DataFrame({"timestamp": pd.Series(dtype="int64"), "oi": pd.Series(dtype="float64")})
-    df = df[df["timestamp"] < end_ms].drop_duplicates(subset="timestamp").reset_index(drop=True)
-    return df
+    return _adapter().fetch_open_interest_history(symbol, start_ms, end_ms)
