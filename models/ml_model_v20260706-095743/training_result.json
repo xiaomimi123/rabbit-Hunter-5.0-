@@ -1,0 +1,39 @@
+{
+  "model_version": "20260706-095743",
+  "trained_at": "2026-07-06T09:57:43.183502+00:00",
+  "n_train": 1649,
+  "n_test": 707,
+  "train_auc": 0.5811621243419738,
+  "test_auc": 0.5199400220971221,
+  "train_accuracy": 0.5676167374166161,
+  "test_accuracy": 0.5063649222065064,
+  "features_used": [
+    "ema20_t0",
+    "ema60_t0",
+    "ema200_t0",
+    "ema20_slope_t0",
+    "adx_t0",
+    "di_plus_t0",
+    "di_minus_t0",
+    "rsi_14_t0",
+    "bb_width_t0",
+    "bb_pct_t0",
+    "zscore_20_t0",
+    "atr_pct_t0",
+    "volume_ratio_20_t0",
+    "funding_rate_t0",
+    "oi_change_pct_t0",
+    "ema20_1h_on_15m_t0",
+    "adx_1h_on_15m_t0",
+    "atr_pct_baseline_t0",
+    "side_long"
+  ],
+  "label_column": "pnl_after_fees > 0",
+  "label_definition": "binary win/loss on realized PnL after fees",
+  "hyperparameters": {
+    "model": "LogisticRegression",
+    "max_iter": 1000,
+    "class_weight": "balanced",
+    "train_fraction": 0.7
+  }
+}

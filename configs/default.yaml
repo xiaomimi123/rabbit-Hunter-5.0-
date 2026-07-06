@@ -19,11 +19,11 @@ strategy_router:
     trend_following:
       weight: 1.0
       config_file: strategies/trend_following.yaml
-    price_action:
+    ml_scoring:
       weight: 1.0
-      config_file: strategies/price_action.yaml
-    # mean_reversion: disabled — proven unprofitable in 1H timeframe
-    # (see phase-1b-scalp branch for the data).
+      config_file: strategies/ml_scoring.yaml
+    # price_action: disabled in multi-symbol regime — loses -$1250 total
+    # over 1620 trades at 34% WR. See phase-multi-symbol branch data.
 
 risk:
   risk_per_trade_pct: 0.5
