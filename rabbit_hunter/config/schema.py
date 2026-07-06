@@ -27,6 +27,7 @@ class StrategyEntry(BaseModel):
 class StrategyRouterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     composer: Literal["weighted_avg", "unanimous", "regime_switch", "max_score"] = "weighted_avg"
+    open_action_threshold: float = Field(ge=0, le=1, default=0.5)
     enabled_strategies: dict[str, StrategyEntry]
 
 
@@ -38,6 +39,10 @@ class RiskConfig(BaseModel):
     max_leverage: float = Field(gt=0)
     daily_max_loss_pct: float = Field(gt=0)
     hold_timeout_bars: int = Field(gt=0)
+    # Trailing-stop (v0.2.0-scalp). All three ignored when trailing_enabled=False.
+    trailing_enabled: bool = False
+    trailing_activation_r: float = Field(gt=0, default=1.0)
+    trailing_atr_multiplier: float = Field(gt=0, default=1.0)
 
 
 class FeeConfig(BaseModel):

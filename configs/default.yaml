@@ -10,11 +10,17 @@ feature_engine:
   cache_enabled: true
 
 strategy_router:
-  composer: weighted_avg
+  composer: max_score
+  open_action_threshold: 0.50
   enabled_strategies:
     trend_following:
       weight: 1.0
       config_file: strategies/trend_following.yaml
+    price_action:
+      weight: 1.0
+      config_file: strategies/price_action.yaml
+    # mean_reversion: disabled — proven unprofitable in 1H timeframe
+    # (see phase-1b-scalp branch for the data).
 
 risk:
   risk_per_trade_pct: 1.0
@@ -23,6 +29,7 @@ risk:
   max_leverage: 3
   daily_max_loss_pct: 3.0
   hold_timeout_bars: 96
+  trailing_enabled: false  # disabled — proven to hurt trend_following
 
 execution:
   fees:

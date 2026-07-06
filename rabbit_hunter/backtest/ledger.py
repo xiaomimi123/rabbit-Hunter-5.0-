@@ -5,6 +5,19 @@ from rabbit_hunter.execution_engine.base import Fill
 from rabbit_hunter.execution_engine.backtest_executor import BacktestExecutor
 
 
+@dataclass(frozen=True)
+class TrailingConfig:
+    """Runtime knobs for trailing-stop behavior. Passed into check_exits so
+    Ledger stays config-agnostic — the risk layer decides whether trailing
+    is on and at what R multiple / ATR distance."""
+    enabled: bool = False
+    activation_r: float = 1.0
+    atr_multiplier: float = 1.0
+
+
+TRAILING_OFF = TrailingConfig(enabled=False)
+
+
 @dataclass
 class Position:
     symbol: str
@@ -19,6 +32,13 @@ class Position:
     strategy_scores: dict
     bars_held: int = 0
     funding_accum: float = 0.0
+    # Trailing-stop bookkeeping (v0.2.0-scalp). initial_stop is frozen at
+    # entry as the "safety net" for R-multiple math (activation threshold
+    # compares profit against original 1R distance, not the current trailed
+    # stop). max_favorable_price is a running high-water mark for the side.
+    initial_stop: float = 0.0
+    max_favorable_price: float = 0.0
+    trailing_active: bool = False
 
 
 @dataclass
@@ -51,6 +71,8 @@ class Ledger:
             take_profit=take_profit,
             entry_snapshot=entry_snapshot,
             strategy_scores=strategy_scores,
+            initial_stop=stop,
+            max_favorable_price=fill.fill_price,
         )
         self.open_positions[fill.symbol] = pos
         self.equity -= fill.fees
@@ -93,6 +115,7 @@ class Ledger:
         executor: BacktestExecutor,
         hold_timeout_bars: int,
         exit_snapshot_fn: Callable[[], dict],
+        trailing: TrailingConfig = TRAILING_OFF,
     ) -> list[dict]:
         results: list[dict] = []
         if symbol not in self.open_positions:
@@ -102,6 +125,44 @@ class Ledger:
 
         high = float(bar["high"]); low = float(bar["low"]); close = float(bar["close"])
         ts = int(bar["timestamp"])
+
+        # --- Trailing-stop update (v0.2.0-scalp) ---
+        # Runs BEFORE the stop/TP hit check so trail movement can affect
+        # this bar's exit decision. Order within the bar is intraday-lossy
+        # (we can't tell whether high or low came first), so we update the
+        # HW mark and trailing stop conservatively: HW uses bar.high for
+        # long / bar.low for short, and any newly-computed trail stop must
+        # not move backward relative to the existing stop.
+        if trailing.enabled and atr > 0:
+            if pos.side == "long":
+                if high > pos.max_favorable_price:
+                    pos.max_favorable_price = high
+            else:  # short
+                if low < pos.max_favorable_price or pos.max_favorable_price == 0.0:
+                    # entry-time init leaves max_favorable_price = entry_price
+                    # for short we want the running MIN, so first low tick
+                    # will overwrite entry price too if low < entry.
+                    pos.max_favorable_price = min(pos.max_favorable_price, low) if pos.max_favorable_price > 0 else low
+
+            initial_r = abs(pos.entry_price - pos.initial_stop)
+            if initial_r > 0:
+                if pos.side == "long":
+                    profit_r = pos.max_favorable_price - pos.entry_price
+                else:
+                    profit_r = pos.entry_price - pos.max_favorable_price
+                if not pos.trailing_active and profit_r >= trailing.activation_r * initial_r:
+                    pos.trailing_active = True
+
+            if pos.trailing_active:
+                trail_dist = trailing.atr_multiplier * atr
+                if pos.side == "long":
+                    new_trail = pos.max_favorable_price - trail_dist
+                    if new_trail > pos.stop:
+                        pos.stop = new_trail
+                else:
+                    new_trail = pos.max_favorable_price + trail_dist
+                    if new_trail < pos.stop:
+                        pos.stop = new_trail
 
         # 检测触发
         if pos.side == "long":
@@ -117,7 +178,9 @@ class Ledger:
         if hit_stop and hit_tp:
             reason = "stop_loss"  # 保守：同 bar 内两者都触发 → 假设先触发止损
         elif hit_stop:
-            reason = "stop_loss"
+            # Distinguish trailing exits from initial-stop exits in the trade
+            # log so the AI reviewer can tell which is which.
+            reason = "trailing_stop" if pos.trailing_active else "stop_loss"
         elif hit_tp:
             reason = "take_profit"
         elif pos.bars_held >= hold_timeout_bars:

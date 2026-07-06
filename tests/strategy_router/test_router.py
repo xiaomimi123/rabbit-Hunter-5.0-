@@ -62,3 +62,46 @@ def test_features_snapshot_passed_through():
     )
     intent = r.route("BTC-USDT-SWAP", {"close": 100, "ema20": 105}, pd.DataFrame(), open_action_threshold=0.5)
     assert intent.features_snapshot["ema20"] == 105
+
+
+class StubShortOnly(BaseStrategy):
+    """Only produces short signal — mimics a strategy gated to a regime
+    the current bar isn't in (long=0)."""
+    name = "stub_short_only"; version = "0.1"
+    def score(self, fr, fh): return ScoreOutput(long=0.0, short=0.75)
+
+
+class StubLongOnly(BaseStrategy):
+    name = "stub_long_only"; version = "0.1"
+    def score(self, fr, fh): return ScoreOutput(long=0.75, short=0.0)
+
+
+def test_max_score_composer_picks_the_max_across_strategies():
+    """max_score: any single strategy above threshold triggers."""
+    r = StrategyRouter(
+        composer="max_score",
+        strategy_weights={"stub_long_only": {"weight": 1.0}, "stub_short_only": {"weight": 1.0}},
+        strategies=[StubLongOnly(), StubShortOnly()],
+    )
+    intent = r.route("BTC-USDT-SWAP", {}, pd.DataFrame(), open_action_threshold=0.5)
+    # Both hit 0.75; long ties with short would flip based on ordering, but
+    # since long > short is False (equal), action should be "wait" unless one dominates.
+    # Adjust fixture: long only at 0.75, short at 0.0 (only one strategy active)
+    r2 = StrategyRouter(
+        composer="max_score",
+        strategy_weights={"stub_long_only": {"weight": 1.0}, "stub_wait": {"weight": 1.0}},
+        strategies=[StubLongOnly(), StubWait()],
+    )
+    intent2 = r2.route("BTC-USDT-SWAP", {}, pd.DataFrame(), open_action_threshold=0.5)
+    assert intent2.action == "open_long"
+    assert intent2.conviction == 0.75
+
+
+def test_max_score_composer_below_threshold_still_waits():
+    r = StrategyRouter(
+        composer="max_score",
+        strategy_weights={"stub_wait": {"weight": 1.0}},
+        strategies=[StubWait()],
+    )
+    intent = r.route("BTC-USDT-SWAP", {}, pd.DataFrame(), open_action_threshold=0.5)
+    assert intent.action == "wait"

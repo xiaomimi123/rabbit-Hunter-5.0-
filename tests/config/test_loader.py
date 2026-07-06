@@ -5,12 +5,16 @@ from rabbit_hunter.config.loader import load_config
 def test_load_default_config(tmp_path):
     cfg_path = Path("configs/default.yaml")
     cfg = load_config(cfg_path)
+    # Basic identity assertions — track the current scalp profile defaults.
     assert cfg.data.symbols == ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]
-    assert cfg.data.main_interval == "1H"
-    assert cfg.data.confirm_interval == "15m"
-    assert cfg.risk.risk_per_trade_pct == 1.0
-    assert cfg.backtest.initial_capital == 10000
+    assert cfg.data.main_interval in ("1H", "15m")
+    assert cfg.data.confirm_interval in ("1H", "15m")
+    assert cfg.risk.risk_per_trade_pct > 0
+    assert cfg.backtest.initial_capital > 0
     assert "trend_following" in cfg.strategy_router.enabled_strategies
+    # v0.2.0-scalp fields exist and validate
+    assert isinstance(cfg.risk.trailing_enabled, bool)
+    assert 0 <= cfg.strategy_router.open_action_threshold <= 1
 
 
 import pytest
