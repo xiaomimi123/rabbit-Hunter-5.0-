@@ -1,0 +1,43 @@
+# AI Review Context - {{ run_id }}
+
+## Data Provenance
+- 数据源: OKX REST 公共行情
+- 时间窗口: {{ start }} → {{ end }}
+- Feature Engine 版本: {{ feature_engine_version }}
+- 手续费模型: maker={{ fees.maker }}, taker={{ fees.taker }}
+- 滑点模型: {{ slippage_atr_multiplier }} × ATR_14
+
+## Baseline Comparisons
+| Baseline | 收益率 | 夏普 | 最大回撤 |
+|---|---|---|---|
+{% for b in baselines -%}
+| {{ b.name }} | {{ b.total_return_pct }}% | {{ b.sharpe }} | {{ b.max_drawdown_pct }}% |
+{% endfor %}
+| 本策略 | {{ stats.total_return_pct }}% | {{ stats.sharpe }} | {{ stats.max_drawdown_pct }}% |
+
+## Failure Mode Clusters
+按 regime / session / day_of_week 分组，胜率 ≤ 40% 且交易数 ≥ 20 的桶：
+
+{% if clusters -%}
+| 维度 | 交易数 | 胜率 | 累计 PnL |
+|---|---|---|---|
+{% for c in clusters -%}
+| {{ c.dim }} | {{ c.trades }} | {{ c.winrate_pct }}% | {{ c.total_pnl }} |
+{% endfor %}
+{% else -%}
+（未发现符合阈值的集群）
+{% endif %}
+
+## Regime-Conditional Performance
+| Regime | 交易数 | 收益率 | 胜率 | 平均 PnL |
+|---|---|---|---|---|
+{% for r in regime_perf -%}
+| {{ r.regime }} | {{ r.count }} | {{ r.return_pct }}% | {{ r.win_rate_pct }}% | {{ r.avg_pnl }} |
+{% endfor %}
+
+## Feature Correlation with PnL (Spearman, top 10)
+| 特征 | 相关性 |
+|---|---|
+{% for f in feature_corr -%}
+| {{ f.feature }} | {{ f.rho }} |
+{% endfor %}
