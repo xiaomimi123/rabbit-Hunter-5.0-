@@ -1,5 +1,5 @@
 name: trend_following
-version: "0.1.1"
+version: "0.1.2"
 params:
   ema_fast: 20
   ema_slow: 60
@@ -8,3 +8,6 @@ params:
   volume_ratio_threshold: 1.5
   confirm_ema_fast: 20
   confirm_adx_threshold: 25
+  # Funding-rate factor (v0.1.2)
+  funding_weight: 0.20
+  funding_threshold: 0.0003

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pandas as pd
@@ -16,6 +17,12 @@ class TFParams:
     volume_ratio_threshold: float
     confirm_ema_fast: int
     confirm_adx_threshold: float
+    # Funding-rate factor (added in v0.1.2). Contrarian: high positive funding
+    # means longs are crowded → short edge; high negative funding means shorts
+    # are crowded → long edge. `funding_threshold` sets the funding value that
+    # maps to a full 1.0 contribution before clipping.
+    funding_weight: float = 0.20
+    funding_threshold: float = 0.0003  # 0.03% per 8-hour interval
 
 
 def _clip01(x: float) -> float:
@@ -30,12 +37,14 @@ class TrendFollowing(BaseStrategy):
     """Trend-following strategy: EMA stack + ADX/DI + volume + 15m confirm."""
 
     name = "trend_following"
-    version = "0.1.0"
+    version = "0.1.2"
 
-    W_EMA = 0.4
-    W_ADX = 0.25
+    # Weights rebalanced when funding factor was added (v0.1.2). Sum of
+    # (W_EMA + W_ADX + W_VOL + W_CONF + funding_weight) must equal 1.0.
+    W_EMA = 0.30
+    W_ADX = 0.20
     W_VOL = 0.15
-    W_CONF = 0.20
+    W_CONF = 0.15
 
     def __init__(self, params: TFParams):
         self.params = params
@@ -110,17 +119,33 @@ class TrendFollowing(BaseStrategy):
             confirm_long *= 0.5
             confirm_short *= 0.5
 
+        # --- 6. Funding-rate contrarian factor (v0.1.2) ---
+        # Independent signal — NOT gated by trend_gate — because funding
+        # positioning gives an edge even when trend strength is modest.
+        # Positive funding → longs pay shorts → likely short-side edge.
+        # Negative funding → shorts pay longs → likely long-side edge.
+        funding_rate = features_row.get("funding_rate")
+        if funding_rate is None or (isinstance(funding_rate, float) and math.isnan(funding_rate)):
+            funding_long = 0.5
+            funding_short = 0.5
+        else:
+            funding_norm = float(funding_rate) / max(p.funding_threshold, 1e-12)
+            funding_long = _clip01(-funding_norm)
+            funding_short = _clip01(funding_norm)
+
         long_score = (
             self.W_EMA * long_stack
             + self.W_ADX * adx_score * di_long * trend_gate
             + self.W_VOL * vol_score * trend_gate
             + self.W_CONF * confirm_long * trend_gate
+            + p.funding_weight * funding_long
         )
         short_score = (
             self.W_EMA * short_stack
             + self.W_ADX * adx_score * di_short * trend_gate
             + self.W_VOL * vol_score * trend_gate
             + self.W_CONF * confirm_short * trend_gate
+            + p.funding_weight * funding_short
         )
 
         return ScoreOutput(
@@ -131,6 +156,7 @@ class TrendFollowing(BaseStrategy):
                 "adx": adx_score,
                 "volume": vol_score,
                 "confirm": confirm_long - confirm_short,
+                "funding": funding_long - funding_short,
             },
             metadata={
                 "adx_value": adx,
@@ -138,5 +164,6 @@ class TrendFollowing(BaseStrategy):
                 "trend_gate": trend_gate,
                 "di_long": di_long,
                 "di_short": di_short,
+                "funding_rate": funding_rate,
             },
         )
