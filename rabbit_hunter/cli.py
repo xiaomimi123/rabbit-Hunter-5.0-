@@ -166,6 +166,7 @@ def backtest(
     from rabbit_hunter.feature_engine.pipeline import load_or_compute_features
     from rabbit_hunter.scoring_engine.strategies.trend_following import TrendFollowing, TFParams
     from rabbit_hunter.scoring_engine.strategies.mean_reversion import MeanReversion, MRParams
+    from rabbit_hunter.scoring_engine.strategies.price_action import PriceAction, PAParams
     from rabbit_hunter.backtest.engine import BacktestEngine
     from rabbit_hunter.backtest.report import ReportBuilder
     from rabbit_hunter.observability.snapshot import SnapshotWriter
@@ -176,6 +177,7 @@ def backtest(
     _STRATEGY_REGISTRY = {
         "trend_following": (TrendFollowing, TFParams),
         "mean_reversion": (MeanReversion, MRParams),
+        "price_action": (PriceAction, PAParams),
     }
 
     features_by_symbol: dict[str, pd.DataFrame] = {}
