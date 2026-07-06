@@ -18,8 +18,10 @@ ml_app = typer.Typer(help="ML training commands")
 app.add_typer(ml_app, name="ml")
 shadow_app = typer.Typer(help="Shadow-mode (paper trading) commands")
 live_app = typer.Typer(help="Live-execution commands (Phase 5)")
+config_app = typer.Typer(help="Config version-history commands")
 app.add_typer(shadow_app, name="shadow")
 app.add_typer(live_app, name="live")
+app.add_typer(config_app, name="config")
 
 
 def _iso_to_ms(s: str) -> int:
@@ -161,6 +163,18 @@ def backtest(
         cfg.backtest.start = start
     if end:
         cfg.backtest.end = end
+
+    # Auto-snapshot the config used for this run. Idempotent — subsequent
+    # backtest runs with the same config are no-ops. Change → new snapshot.
+    try:
+        from rabbit_hunter.config.history import snapshot_if_changed
+        entry = snapshot_if_changed(config, note="backtest")
+        if entry is not None:
+            log.info("config_snapshot_new",
+                      hash=entry.config_hash, path=entry.snapshot_path)
+    except Exception as e:
+        # Never let history bookkeeping break a real backtest run.
+        log.warning("config_snapshot_failed", error=str(e))
 
     if dry_run:
         typer.echo(f"dry-run: config loaded, symbols={cfg.data.symbols}, "
@@ -486,6 +500,13 @@ def shadow_run(
     """
     configure_logger()
     cfg = load_config(config)
+
+    # Auto-snapshot the config on shadow launch so mid-run drift is caught.
+    try:
+        from rabbit_hunter.config.history import snapshot_if_changed
+        snapshot_if_changed(config, note="shadow_run")
+    except Exception:
+        pass  # never crash a real runner on bookkeeping
 
     from rabbit_hunter.scoring_engine.strategies.trend_following import TrendFollowing, TFParams
     from rabbit_hunter.scoring_engine.strategies.mean_reversion import MeanReversion, MRParams
@@ -984,6 +1005,77 @@ def shadow_dashboard(
     from rabbit_hunter.shadow.dashboard import write_dashboard
     p = write_dashboard(state_dir=state_dir, out_path=out)
     typer.echo(f"dashboard: {p}")
+
+
+@config_app.command("history")
+def config_history(
+    source: Path = typer.Option(None, "--source",
+                                  help="Filter to a specific config file"),
+    history_dir: Path = typer.Option(
+        Path("configs/.history"), "--history-dir"),
+    limit: int = typer.Option(0, "--limit",
+                                help="Show only the last N entries (0 = all)"),
+):
+    """List recorded config snapshots — one line per change."""
+    from rabbit_hunter.config.history import history as _hist
+    entries = _hist(history_dir=history_dir, source_path=source)
+    if not entries:
+        typer.echo(f"no history under {history_dir}")
+        return
+    if limit > 0:
+        entries = entries[-limit:]
+    typer.echo(f"{'Idx':<5} {'Hash':<18} {'Timestamp (UTC)':<28} "
+                f"{'Source':<40} Note")
+    typer.echo("-" * 110)
+    for i, e in enumerate(entries):
+        typer.echo(f"{i:<5} {e.config_hash:<18} {e.timestamp_utc:<28} "
+                    f"{e.source_path:<40} {e.note}")
+
+
+@config_app.command("diff")
+def config_diff(
+    rev_a: str = typer.Argument("previous"),
+    rev_b: str = typer.Argument("latest"),
+    history_dir: Path = typer.Option(
+        Path("configs/.history"), "--history-dir"),
+    source: Path = typer.Option(None, "--source",
+                                  help="Filter to a specific config file"),
+):
+    """Show diff between two snapshots. Revisions: `latest`, `previous`,
+    a hash-prefix, or an integer index (see `rabbit config history`)."""
+    from rabbit_hunter.config.history import diff as _diff
+    try:
+        text = _diff(rev_a, rev_b,
+                      history_dir=history_dir, source_path=source)
+    except ValueError as e:
+        typer.echo(str(e))
+        raise typer.Exit(code=1)
+    if not text:
+        typer.echo("(revisions identical)")
+        return
+    typer.echo(text)
+
+
+@config_app.command("snapshot")
+def config_snapshot(
+    config: Path = typer.Argument(Path("configs/default.yaml")),
+    history_dir: Path = typer.Option(
+        Path("configs/.history"), "--history-dir"),
+    note: str = typer.Option("", "--note",
+                              help="Free-text label for this snapshot"),
+):
+    """Force-snapshot a config file NOW (bypassing the change check).
+
+    Useful before an experiment: `rabbit config snapshot --note pre-tune`
+    then run the tuning, then `rabbit config diff pre-tune latest`.
+    """
+    from rabbit_hunter.config.history import snapshot_if_changed
+    entry = snapshot_if_changed(config, history_dir=history_dir, note=note)
+    if entry is None:
+        typer.echo("no change — snapshot skipped (idempotent)")
+    else:
+        typer.echo(f"snapshot: {entry.snapshot_path}")
+        typer.echo(f"hash:     {entry.config_hash}")
 
 
 if __name__ == "__main__":
