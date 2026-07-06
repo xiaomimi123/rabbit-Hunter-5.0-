@@ -64,9 +64,9 @@ def test_find_loss_clusters_finds_something_with_many_losses():
         for t in _mk_trades(30)
     ]
     df = pd.DataFrame([{
-        "regime": t["entry_snapshot"]["regime"],
-        "session": "asia",
-        "day_of_week": 0,
+        "regime_t0": t["entry_snapshot"]["regime"],
+        "session_t0": "asia",
+        "day_of_week_t0": 0,
         "pnl_after_fees": t["pnl_after_fees"],
     } for t in losing_trades])
     clusters = find_loss_clusters(df, min_trades=10, max_winrate=0.5)

@@ -61,8 +61,8 @@ def compute_stats(trades: list[dict], equity_curve: pd.DataFrame, initial_capita
 def find_loss_clusters(trades_df: pd.DataFrame, min_trades: int = 20, max_winrate: float = 0.4) -> list[dict]:
     if trades_df.empty:
         return []
-    dims_all = ["regime", "session", "day_of_week"]
-    dims = [d for d in dims_all if d in trades_df.columns]
+    dims_all_suffixed = ["regime_t0", "session_t0", "day_of_week_t0"]
+    dims = [d for d in dims_all_suffixed if d in trades_df.columns]
     clusters: list[dict] = []
     for r in (1, 2):
         for combo in itertools.combinations(dims, r):
@@ -73,7 +73,7 @@ def find_loss_clusters(trades_df: pd.DataFrame, min_trades: int = 20, max_winrat
             ).reset_index()
             hits = grouped[(grouped["trades"] >= min_trades) & (grouped["winrate"] <= max_winrate)]
             for _, row in hits.iterrows():
-                dim_str = " AND ".join(f"{c}={row[c]}" for c in combo)
+                dim_str = " AND ".join(f"{c.removesuffix('_t0')}={row[c]}" for c in combo)
                 clusters.append({
                     "dim": dim_str,
                     "trades": int(row["trades"]),
