@@ -277,9 +277,11 @@
   }
   table.data th:first-child, table.data td:first-child { text-align: left; }
   table.data thead th {
-    background: transparent; color: var(--text-mute);
+    background: var(--bg-card); color: var(--text-mute);
     font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
     font-weight: 600; padding-top: 12px; padding-bottom: 12px;
+    position: sticky; top: 0; z-index: 2;
+    box-shadow: inset 0 -1px 0 var(--border);
   }
   table.data tbody tr {
     transition: background 0.12s ease;
@@ -356,6 +358,127 @@
   }
   a.link:hover { color: var(--accent-2); text-decoration: underline; }
 
+  /* =========== KPI sparkline + trend =========== */
+  .kpi { position: relative; }
+  .kpi .sparkline {
+    position: absolute; right: 14px; bottom: 12px;
+    opacity: 0.85;
+  }
+  .kpi .value-row {
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .trend-arrow {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; font-size: 11px; line-height: 1;
+    font-weight: 700;
+  }
+  .trend-arrow.up { color: var(--up); }
+  .trend-arrow.down { color: var(--down); }
+
+  /* =========== Command Palette (Cmd+K) =========== */
+  .cmdk-hint {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 7px; border-radius: 5px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    color: var(--text-dim); font-size: 11px;
+    font-family: "SF Mono", monospace;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .cmdk-hint:hover { color: var(--text); border-color: var(--border-lit); }
+  .cmdk-kbd {
+    padding: 0 3px; border-radius: 3px;
+    background: var(--bg-panel); font-size: 10px;
+  }
+
+  #cmdk-overlay {
+    position: fixed; inset: 0;
+    background: rgba(4, 6, 10, 0.65);
+    backdrop-filter: blur(8px);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 12vh; z-index: 100;
+    animation: fadeIn 0.15s ease;
+  }
+  #cmdk-overlay.visible { display: flex; }
+  .cmdk-panel {
+    width: 90%; max-width: 620px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-lit);
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 24px 80px -20px rgba(0,0,0,0.7),
+                0 0 0 1px rgba(124,157,245,0.06),
+                0 0 40px -8px rgba(124,157,245,0.1);
+    animation: cmdkOpen 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes cmdkOpen {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .cmdk-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .cmdk-header svg { color: var(--text-dim); flex-shrink: 0; }
+  #cmdk-input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-size: 15px; font-family: inherit;
+    padding: 0;
+  }
+  #cmdk-input::placeholder { color: var(--text-mute); }
+  .cmdk-esc {
+    padding: 3px 7px; border-radius: 5px;
+    background: var(--bg-elev); color: var(--text-dim);
+    font-size: 10.5px; font-family: "SF Mono", monospace;
+    border: 1px solid var(--border);
+  }
+  .cmdk-list {
+    max-height: 60vh; overflow-y: auto; padding: 6px;
+  }
+  .cmdk-section-label {
+    padding: 8px 14px 4px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text-mute); font-weight: 600;
+  }
+  .cmdk-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 8px;
+    color: var(--text-mid); cursor: pointer;
+    font-size: 13.5px;
+  }
+  .cmdk-item .cmdk-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 6px;
+    background: var(--bg-elev); color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .cmdk-item.active {
+    background: linear-gradient(90deg, rgba(124,157,245,0.12) 0%, transparent 100%);
+    color: var(--text);
+  }
+  .cmdk-item.active .cmdk-icon { color: var(--accent); background: rgba(124,157,245,0.14); }
+  .cmdk-item .cmdk-hint-text {
+    margin-left: auto; font-size: 11px; color: var(--text-mute);
+  }
+  .cmdk-empty {
+    padding: 40px 20px; text-align: center;
+    color: var(--text-mute); font-size: 13px;
+  }
+
+  /* =========== Skeleton loader =========== */
+  .skel {
+    background: linear-gradient(90deg, var(--bg-elev) 0%,
+                                        var(--bg-hover) 50%,
+                                        var(--bg-elev) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 4px;
+  }
+  @keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
   /* =========== Loading skeleton =========== */
   .loading {
     padding: 40px; text-align: center; color: var(--text-mute); font-size: 12px;
@@ -387,11 +510,28 @@
     <span class="brand-ver">v0.2</span>
   </div>
   <div class="status-cluster">
+    <span class="cmdk-hint" onclick="openCmdk()" title="快速导航">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span>快速搜索</span>
+      <span class="cmdk-kbd">⌘K</span>
+    </span>
     <span id="tick-status" class="status-pill">
       <span class="status-dot"></span>
       <span id="tick-status-text">连接中</span>
     </span>
     <span id="tick-time" class="clock mono"></span>
+  </div>
+</div>
+
+<!-- Command Palette Overlay -->
+<div id="cmdk-overlay" onclick="if(event.target===this) closeCmdk()">
+  <div class="cmdk-panel">
+    <div class="cmdk-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="cmdk-input" placeholder="搜索页面、报告、模型…" autocomplete="off"/>
+      <span class="cmdk-esc">Esc</span>
+    </div>
+    <div id="cmdk-list" class="cmdk-list"></div>
   </div>
 </div>
 
@@ -575,6 +715,50 @@ function svgLineChart(points, valueKey, opts = {}) {
   </svg>`;
 }
 
+/* Skeleton placeholders for loading state */
+function skeletonPanel() {
+  return `
+    <div class="kpi-row">
+      ${Array(6).fill(0).map(() => `
+        <div class="kpi">
+          <div class="skel" style="height:11px;width:60%;margin-bottom:12px"></div>
+          <div class="skel" style="height:24px;width:80%;margin-bottom:6px"></div>
+          <div class="skel" style="height:10px;width:40%"></div>
+        </div>`).join("")}
+    </div>
+    <div class="panel"><div class="panel-body">
+      <div class="skel" style="height:220px;width:100%"></div>
+    </div></div>`;
+}
+
+/* Sparkline — for KPI card trend indicators */
+function sparkline(values, opts = {}) {
+  const { w = 88, h = 28, stroke = "#7c9df5",
+          fillFrom = "rgba(124,157,245,0.35)",
+          fillTo = "rgba(124,157,245,0.02)" } = opts;
+  if (!values || values.length < 2) return "";
+  const yMin = Math.min(...values), yMax = Math.max(...values);
+  const yRange = (yMax - yMin) || 1;
+  const pad = 2;
+  const iw = w - 2 * pad, ih = h - 2 * pad;
+  const pts = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * iw;
+    const y = pad + (1 - (v - yMin) / yRange) * ih;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  const area = `${pad},${pad + ih} ` + pts + ` ${pad + iw},${pad + ih}`;
+  const gid = "spk" + Math.random().toString(36).slice(2, 8);
+  return `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${fillFrom}"/>
+      <stop offset="100%" stop-color="${fillTo}"/>
+    </linearGradient></defs>
+    <polygon points="${area}" fill="url(#${gid})" stroke="none"/>
+    <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
 function emptyState(msg, hint = "") {
   return `<div class="empty">
     <span class="icon">
@@ -592,7 +776,7 @@ views.dashboard = async () => {
     <div class="page-title">
       <h1>仪表盘</h1><span class="sub">实时账户与策略概览</span>
     </div>
-    <div id="dash-body"><div class="loading">加载中</div></div>`;
+    <div id="dash-body">${skeletonPanel()}</div>`;
   try {
     const [state, hist, positions, alerts, clusters] = await Promise.all([
       api("/api/shadow/state"),
@@ -609,36 +793,64 @@ views.dashboard = async () => {
       );
       return;
     }
+    // Build sparklines from metrics history for equity + drawdown trend
+    const equitySeries = hist.points.map(p => p.equity);
+    const ddSeries     = hist.points.map(p => (p.drawdown_from_peak_pct || 0) * 100);
+    const arrow = n => n > 0 ? '<span class="trend-arrow up">▲</span>' :
+                       n < 0 ? '<span class="trend-arrow down">▼</span>' : '';
+    const upColor = "#22c55e", downColor = "#ef4444";
+    const equitySparkColor = state.total_pnl >= 0 ? upColor : downColor;
+    const equitySparkFill = state.total_pnl >= 0 ? "rgba(34,197,94,0.28)" : "rgba(239,68,68,0.28)";
+    const equitySparkFillTo = state.total_pnl >= 0 ? "rgba(34,197,94,0.02)" : "rgba(239,68,68,0.02)";
+
     body.innerHTML = `
       <div class="kpi-row">
         <div class="kpi ${kpiCls(state.total_pnl)}">
           <div class="label">账户净值</div>
-          <div class="value ${upDown(state.total_pnl)}">${fmtCur(state.equity)}</div>
+          <div class="value-row">
+            <div class="value ${upDown(state.total_pnl)}">${fmtCur(state.equity)}</div>
+          </div>
           <div class="sub">初始 ${fmtCur(state.initial_capital, 0)}</div>
+          ${sparkline(equitySeries, { stroke: equitySparkColor, fillFrom: equitySparkFill, fillTo: equitySparkFillTo })}
         </div>
         <div class="kpi ${kpiCls(state.total_pnl)}">
           <div class="label">总盈亏</div>
-          <div class="value ${upDown(state.total_pnl)}">${fmtPnl(state.total_pnl)}</div>
+          <div class="value-row">
+            ${arrow(state.total_pnl)}
+            <div class="value ${upDown(state.total_pnl)}">${fmtPnl(state.total_pnl)}</div>
+          </div>
           <div class="sub">${fmtPct(state.pnl_pct)}</div>
+          ${sparkline(equitySeries.map((v, i) => v - equitySeries[0]),
+             { stroke: equitySparkColor, fillFrom: equitySparkFill, fillTo: equitySparkFillTo })}
         </div>
         <div class="kpi ${state.drawdown_pct >= 0.10 ? 'down' : ''}">
           <div class="label">当前回撤</div>
-          <div class="value ${state.drawdown_pct >= 0.10 ? 'down' : ''}">${fmtPct(state.drawdown_pct)}</div>
+          <div class="value-row">
+            <div class="value ${state.drawdown_pct >= 0.10 ? 'down' : ''}">${fmtPct(state.drawdown_pct)}</div>
+          </div>
           <div class="sub">峰值 ${fmtCur(state.peak_equity, 0)}</div>
+          ${sparkline(ddSeries, { stroke: downColor, fillFrom: "rgba(239,68,68,0.28)", fillTo: "rgba(239,68,68,0.02)" })}
         </div>
         <div class="kpi">
           <div class="label">胜率</div>
-          <div class="value">${fmtPct(state.winrate, 1)}</div>
+          <div class="value-row">
+            ${state.winrate >= 0.5 ? arrow(1) : arrow(-1)}
+            <div class="value ${state.winrate >= 0.5 ? 'up' : 'down'}">${fmtPct(state.winrate, 1)}</div>
+          </div>
           <div class="sub">${state.closed_trades} 笔已平</div>
         </div>
         <div class="kpi">
           <div class="label">盈亏比</div>
-          <div class="value">${fmtNum(state.profit_factor)}</div>
+          <div class="value-row">
+            <div class="value">${fmtNum(state.profit_factor)}</div>
+          </div>
           <div class="sub">Profit Factor</div>
         </div>
         <div class="kpi">
           <div class="label">当前持仓</div>
-          <div class="value">${state.open_positions}</div>
+          <div class="value-row">
+            <div class="value">${state.open_positions}</div>
+          </div>
           <div class="sub">笔</div>
         </div>
       </div>
@@ -736,7 +948,7 @@ views.shadow = async () => {
     <div class="page-title">
       <h1>影子交易</h1><span class="sub">纸面执行与实时表现</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const [state, hist, trades] = await Promise.all([
       api("/api/shadow/state"),
@@ -796,7 +1008,7 @@ views.backtests = async () => {
     <div class="page-title">
       <h1>回测报告</h1><span class="sub">历史策略验证结果</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const list = await api("/api/backtests");
     if (!list.reports.length) {
@@ -893,7 +1105,7 @@ views.analytics = async () => {
     <div class="page-title">
       <h1>数据分析</h1><span class="sub">聚类表现与漂移监控</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const [clusters, baselines] = await Promise.all([
       api("/api/analytics/clusters/shadow"),
@@ -975,7 +1187,7 @@ views.models = async () => {
     <div class="page-title">
       <h1>模型仓库</h1><span class="sub">机器学习模型注册表</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const [ms, log] = await Promise.all([
       api("/api/models"),
@@ -1031,7 +1243,7 @@ views.config = async () => {
     <div class="page-title">
       <h1>配置管理</h1><span class="sub">当前配置与历史快照</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const [current, hist] = await Promise.all([
       api("/api/config/current"),
@@ -1100,7 +1312,7 @@ views.data = async () => {
     <div class="page-title">
       <h1>数据健康</h1><span class="sub">数据管道状态</span>
     </div>
-    <div id="body"><div class="loading">加载中</div></div>`;
+    <div id="body">${skeletonPanel()}</div>`;
   try {
     const d = await api("/api/data/health");
     const statusBadge = s => ({
@@ -1141,6 +1353,139 @@ views.data = async () => {
     document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
+
+/* ===================== Command Palette ===================== */
+const CMDK_STATIC_ITEMS = [
+  { section: "页面", label: "仪表盘", hint: "Dashboard", action: () => nav("dashboard"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>' },
+  { section: "页面", label: "影子交易", hint: "Shadow", action: () => nav("shadow"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' },
+  { section: "页面", label: "回测报告", hint: "Backtests", action: () => nav("backtests"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>' },
+  { section: "页面", label: "数据分析", hint: "Analytics", action: () => nav("analytics"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.5 4.5"/></svg>' },
+  { section: "页面", label: "模型仓库", hint: "Models", action: () => nav("models"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l6 6 6-6"/><path d="M2 12l10 10 10-10-10-10z"/></svg>' },
+  { section: "页面", label: "配置管理", hint: "Config", action: () => nav("config"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>' },
+  { section: "页面", label: "数据健康", hint: "Data", action: () => nav("data"),
+    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/></svg>' },
+];
+
+let cmdkActiveIdx = 0;
+let cmdkResults = [];
+let cmdkDynamic = { reports: [], models: [] };
+
+async function loadCmdkDynamic() {
+  try {
+    const [bt, ms] = await Promise.all([api("/api/backtests"), api("/api/models")]);
+    cmdkDynamic.reports = bt.reports || [];
+    cmdkDynamic.models = ms.models || [];
+  } catch { /* silent */ }
+}
+
+function fuzzyMatch(hay, needle) {
+  if (!needle) return true;
+  hay = hay.toLowerCase(); needle = needle.toLowerCase();
+  let hi = 0;
+  for (const c of needle) {
+    hi = hay.indexOf(c, hi);
+    if (hi < 0) return false;
+    hi++;
+  }
+  return true;
+}
+
+function renderCmdk(q = "") {
+  const items = [...CMDK_STATIC_ITEMS];
+  for (const r of cmdkDynamic.reports.slice(0, 30)) {
+    items.push({
+      section: "回测报告", label: r.name,
+      hint: `${r.n_trades} 笔 · ${(r.total_pnl >= 0 ? "+" : "") + r.total_pnl.toFixed(0)}`,
+      action: () => { nav("backtests"); setTimeout(() => window.showBacktest(r.name), 100); },
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    });
+  }
+  for (const m of cmdkDynamic.models) {
+    items.push({
+      section: "模型", label: m.version + (m.is_active ? " · 生效中" : ""),
+      hint: `AUC ${m.test_auc.toFixed(4)}`, action: () => nav("models"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3l6 6 6-6"/><path d="M2 12l10 10 10-10-10-10z"/></svg>',
+    });
+  }
+  cmdkResults = items.filter(x =>
+    fuzzyMatch(x.label, q) || fuzzyMatch(x.hint || "", q) || fuzzyMatch(x.section, q));
+  cmdkActiveIdx = 0;
+
+  const listEl = document.getElementById("cmdk-list");
+  if (!cmdkResults.length) {
+    listEl.innerHTML = `<div class="cmdk-empty">未找到匹配项</div>`;
+    return;
+  }
+  let html = ""; let lastSection = null;
+  cmdkResults.forEach((r, i) => {
+    if (r.section !== lastSection) {
+      html += `<div class="cmdk-section-label">${r.section}</div>`;
+      lastSection = r.section;
+    }
+    html += `<div class="cmdk-item ${i === cmdkActiveIdx ? 'active' : ''}"
+                  data-idx="${i}" onclick="cmdkPick(${i})">
+      <span class="cmdk-icon">${r.icon}</span>
+      <span>${escapeHtml(r.label)}</span>
+      ${r.hint ? `<span class="cmdk-hint-text">${escapeHtml(r.hint)}</span>` : ""}
+    </div>`;
+  });
+  listEl.innerHTML = html;
+}
+
+window.openCmdk = async () => {
+  document.getElementById("cmdk-overlay").classList.add("visible");
+  const input = document.getElementById("cmdk-input");
+  input.value = ""; input.focus();
+  if (!cmdkDynamic.reports.length && !cmdkDynamic.models.length) {
+    await loadCmdkDynamic();
+  }
+  renderCmdk("");
+};
+window.closeCmdk = () => {
+  document.getElementById("cmdk-overlay").classList.remove("visible");
+};
+window.cmdkPick = (idx) => {
+  const r = cmdkResults[idx];
+  if (!r) return;
+  closeCmdk();
+  r.action();
+};
+
+document.getElementById("cmdk-input").addEventListener("input", (e) => {
+  renderCmdk(e.target.value.trim());
+});
+document.addEventListener("keydown", (e) => {
+  // Cmd+K / Ctrl+K to open
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault(); openCmdk(); return;
+  }
+  const overlay = document.getElementById("cmdk-overlay");
+  if (!overlay.classList.contains("visible")) return;
+  if (e.key === "Escape") { closeCmdk(); return; }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    cmdkActiveIdx = Math.min(cmdkActiveIdx + 1, cmdkResults.length - 1);
+    updateCmdkActive();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    cmdkActiveIdx = Math.max(cmdkActiveIdx - 1, 0);
+    updateCmdkActive();
+  } else if (e.key === "Enter") {
+    e.preventDefault(); cmdkPick(cmdkActiveIdx);
+  }
+});
+function updateCmdkActive() {
+  document.querySelectorAll(".cmdk-item").forEach(el => {
+    el.classList.toggle("active", Number(el.dataset.idx) === cmdkActiveIdx);
+    if (Number(el.dataset.idx) === cmdkActiveIdx) el.scrollIntoView({ block: "nearest" });
+  });
+}
 
 /* ===================== Boot ===================== */
 nav("dashboard");
