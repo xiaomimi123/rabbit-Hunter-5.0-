@@ -159,6 +159,59 @@ def test_shadow_tick_skips_early_warmup_bars(tmp_path):
     assert day_dirs == []
 
 
+def test_shadow_runner_skips_funding_when_disabled(tmp_path):
+    """`fetch_funding=False` must prevent the runner from calling
+    Binance — protects logs from useless fetch_funding_failed noise
+    when no strategy consumes funding_rate."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies,
+                     ShadowConfig(state_dir=tmp_path / "s",
+                                    fetch_funding=False))
+
+    feats = _mk_feats(n=250)
+    # Return raw OHLCV frame; we only care the funding branch is skipped
+    from rabbit_hunter.data_engine.storage import read_ohlcv  # for stub_raw fn signature
+    raw_df = pd.DataFrame({
+        "timestamp": [i * 3_600_000 for i in range(250)],
+        "open": np.linspace(100.0, 120.0, 250),
+        "high": np.linspace(101.0, 121.0, 250),
+        "low":  np.linspace( 99.0, 119.0, 250),
+        "close":np.linspace(100.5, 120.5, 250),
+        "volume": np.full(250, 100.0),
+    })
+    with patch("rabbit_hunter.shadow.runner.fetch_ohlcv", return_value=raw_df), \
+         patch("rabbit_hunter.shadow.runner.fetch_funding_rate_history_binance") as mock_bin, \
+         patch.object(r, "_handle_bar"):
+        r._fetch_recent_features("BTC-USDT-SWAP")
+    mock_bin.assert_not_called()
+
+
+def test_shadow_runner_fetches_funding_when_enabled(tmp_path):
+    """`fetch_funding=True` (default) must still call Binance —
+    default-on behavior stays backwards-compatible."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies,
+                     ShadowConfig(state_dir=tmp_path / "s",
+                                    fetch_funding=True))
+
+    raw_df = pd.DataFrame({
+        "timestamp": [i * 3_600_000 for i in range(250)],
+        "open": np.linspace(100.0, 120.0, 250),
+        "high": np.linspace(101.0, 121.0, 250),
+        "low":  np.linspace( 99.0, 119.0, 250),
+        "close":np.linspace(100.5, 120.5, 250),
+        "volume": np.full(250, 100.0),
+    })
+    with patch("rabbit_hunter.shadow.runner.fetch_ohlcv", return_value=raw_df), \
+         patch("rabbit_hunter.shadow.runner.fetch_funding_rate_history_binance",
+               return_value=pd.DataFrame({"timestamp": [], "funding_rate": []})) as mock_bin, \
+         patch.object(r, "_handle_bar"):
+        r._fetch_recent_features("BTC-USDT-SWAP")
+    mock_bin.assert_called_once()
+
+
 def test_shadow_tick_appends_features_log(tmp_path):
     """Every processed bar appends one row to state/features_log.parquet
     with the tracked feature columns — foundation for

@@ -64,6 +64,10 @@ class ShadowConfig:
     state_dir: Path = field(default_factory=lambda: Path("shadows"))
     # Alert thresholds for the metrics collector. Override per-deployment.
     alert_thresholds: AlertThresholds = field(default_factory=AlertThresholds)
+    # Fetch funding history from Binance every tick. Turn off when no
+    # strategy uses the funding_rate factor (e.g. funding_weight: 0.0),
+    # or when Binance is unreachable and you want cleaner logs.
+    fetch_funding: bool = True
 
 
 class ShadowRunner:
@@ -262,13 +266,16 @@ class ShadowRunner:
             except Exception as e:
                 self.log.warning("fetch_confirm_failed", symbol=symbol, error=str(e))
 
-        # Funding (best effort — Binance)
+        # Funding (best effort — Binance). Skipped when the deployment
+        # disables it via ShadowConfig.fetch_funding=False, typically
+        # because no strategy uses funding_rate or Binance is unreachable.
         funding = None
-        try:
-            funding_start = end_ms - 100 * 8 * 3_600_000  # ~100 funding intervals back
-            funding = fetch_funding_rate_history_binance(symbol, funding_start, end_ms)
-        except Exception as e:
-            self.log.warning("fetch_funding_failed", symbol=symbol, error=str(e))
+        if self.shadow_cfg.fetch_funding:
+            try:
+                funding_start = end_ms - 100 * 8 * 3_600_000  # ~100 funding intervals back
+                funding = fetch_funding_rate_history_binance(symbol, funding_start, end_ms)
+            except Exception as e:
+                self.log.warning("fetch_funding_failed", symbol=symbol, error=str(e))
 
         if funding is not None and not funding.empty:
             raw = pd.merge_asof(

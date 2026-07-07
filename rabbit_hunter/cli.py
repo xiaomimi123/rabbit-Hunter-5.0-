@@ -488,6 +488,12 @@ def shadow_run(
     state_dir: Path = typer.Option(Path("shadows"), help="Where ledger+snapshots persist"),
     poll_interval: int = typer.Option(60, help="Seconds between OKX poll ticks"),
     lookback_bars: int = typer.Option(600, help="Bars back to fetch per tick"),
+    fetch_funding: bool = typer.Option(
+        None, "--fetch-funding/--no-fetch-funding",
+        help="Pull funding history from Binance each tick. "
+             "Auto-detects OFF when every enabled strategy has "
+             "funding_weight == 0.",
+    ),
 ):
     """Run the shadow-mode paper-trading loop.
 
@@ -522,6 +528,7 @@ def shadow_run(
         "ml_scoring": (MLScoring, MLScoringParams),
     }
     strategies = []
+    any_uses_funding = False
     for name, entry in cfg.strategy_router.enabled_strategies.items():
         if name not in _STRATEGY_REGISTRY:
             raise typer.BadParameter(f"Unknown strategy {name}")
@@ -529,6 +536,17 @@ def shadow_run(
         strat_cfg_path = Path("configs") / entry.config_file
         strat_yaml = _yaml.safe_load(strat_cfg_path.read_text(encoding="utf-8"))
         strategies.append(Strat(ParamsCls(**strat_yaml["params"])))
+        # Track whether any enabled strategy will actually consume funding.
+        if float(strat_yaml["params"].get("funding_weight", 0.0)) > 0:
+            any_uses_funding = True
+
+    # Auto-detect fetch_funding when the user hasn't explicitly overridden it.
+    if fetch_funding is None:
+        fetch_funding = any_uses_funding
+    typer.echo(
+        f"# fetch_funding={fetch_funding} "
+        f"(any strategy uses funding: {any_uses_funding})"
+    )
 
     runner = ShadowRunner(
         app_config=cfg, strategies=strategies,
@@ -536,6 +554,7 @@ def shadow_run(
             poll_interval_seconds=poll_interval,
             lookback_bars=lookback_bars,
             state_dir=state_dir,
+            fetch_funding=fetch_funding,
         ),
     )
     runner.run_forever()
