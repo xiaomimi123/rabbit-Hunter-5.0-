@@ -1,212 +1,466 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
-<title>Rabbit Hunter — Operator Console</title>
+<title>Rabbit Hunter · 量化操盘台</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  /* ===== Design system =====
-     Bloomberg-terminal-inspired dark theme. All numbers monospace for
-     alignment; three-color state system (green/red/amber); dense grid
-     layout with clear card boundaries.
-  */
+  /* ============================================================
+     Rabbit Hunter · 量化操盘台
+     Linear + Vercel + Coinglass-inspired dark theme
+     ============================================================ */
+
   :root {
-    --bg:        #0d1117;
-    --bg-alt:    #161b22;
-    --card:      #1a1f2a;
-    --border:    #2b3140;
-    --text:      #e6edf3;
-    --text-dim:  #8b98a5;
-    --text-mute: #576068;
-    --up:        #26a269;
-    --down:      #e5484d;
-    --warn:      #f0b429;
-    --accent:    #58a6ff;
+    /* Backgrounds — layered depth */
+    --bg-base:    #0a0d13;
+    --bg-panel:   #10141d;
+    --bg-card:    #141926;
+    --bg-hover:   #1a2030;
+    --bg-elev:    #1e2536;
+
+    /* Borders */
+    --border:      #232a3b;
+    --border-lit:  #2f3752;
+
+    /* Text */
+    --text:        #e8ecf3;
+    --text-mid:    #b3bdcc;
+    --text-dim:    #7d8590;
+    --text-mute:   #4e5666;
+
+    /* Semantic */
+    --up:          #22c55e;
+    --up-glow:     rgba(34,197,94,0.14);
+    --down:        #ef4444;
+    --down-glow:   rgba(239,68,68,0.14);
+    --warn:        #f59e0b;
+    --warn-glow:   rgba(245,158,11,0.14);
+
+    /* Accents */
+    --accent:      #7c9df5;
+    --accent-2:    #a78bfa;
+    --accent-3:    #22d3ee;
+    --gradient-primary: linear-gradient(135deg, #7c9df5 0%, #a78bfa 100%);
+    --gradient-live:    linear-gradient(135deg, #22c55e 0%, #4ade80 100%);
+    --gradient-alert:   linear-gradient(135deg, #ef4444 0%, #f97316 100%);
   }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); }
+  html, body { margin: 0; padding: 0; height: 100%; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                 "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-base);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+                 "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+  .mono {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas,
+                 "Liberation Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
   .up   { color: var(--up); }
   .down { color: var(--down); }
   .warn { color: var(--warn); }
   .dim  { color: var(--text-dim); }
+  .mid  { color: var(--text-mid); }
   .mute { color: var(--text-mute); }
 
-  /* ===== Layout — top bar / sidebar / main ===== */
+  /* =========== Top bar =========== */
   #topbar {
     display: flex; align-items: center; justify-content: space-between;
-    background: var(--bg-alt);
+    padding: 0 24px; height: 52px;
+    background: linear-gradient(180deg, var(--bg-panel) 0%, rgba(16,20,29,0.9) 100%);
     border-bottom: 1px solid var(--border);
-    padding: 10px 20px;
-    height: 44px;
+    backdrop-filter: blur(20px);
+    position: sticky; top: 0; z-index: 10;
   }
-  #topbar .brand {
-    font-weight: 700; letter-spacing: 0.08em; font-size: 12px;
-    color: var(--text); text-transform: uppercase;
+  #topbar::after {
+    content: ""; position: absolute; bottom: -1px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%,
+                                     var(--accent) 50%,
+                                     transparent 100%);
+    opacity: 0.35;
   }
-  #topbar .brand .accent { color: var(--accent); }
-  #topbar .status {
-    font-size: 11px; color: var(--text-dim);
-    display: flex; align-items: center; gap: 16px;
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-weight: 700; font-size: 13px; letter-spacing: 0.14em;
+    text-transform: uppercase;
   }
-  #topbar .dot {
-    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--up); margin-right: 6px;
+  .brand-logo {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 7px;
+    background: var(--gradient-primary);
+    box-shadow: 0 4px 12px rgba(124,157,245,0.35);
   }
-  #topbar .dot.stale { background: var(--warn); }
-  #topbar .dot.down  { background: var(--down); }
+  .brand-name .grad {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .brand-ver { color: var(--text-mute); font-size: 11px; margin-left: 6px; letter-spacing: 0.08em; }
 
-  #layout { display: grid; grid-template-columns: 180px 1fr; height: calc(100vh - 44px); }
+  .status-cluster {
+    display: flex; align-items: center; gap: 20px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(34,197,94,0.08);
+    border: 1px solid rgba(34,197,94,0.22);
+    color: var(--up);
+    font-weight: 500;
+  }
+  .status-pill.stale { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.22); color: var(--warn); }
+  .status-pill.down  { background: rgba(239,68,68,0.08);  border-color: rgba(239,68,68,0.22);  color: var(--down); }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+    50%      { box-shadow: 0 0 0 4px transparent; opacity: 0.6; }
+  }
+  .clock {
+    color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+
+  /* =========== Layout =========== */
+  #layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 52px); }
+
   #sidebar {
-    background: var(--bg-alt); border-right: 1px solid var(--border);
-    padding: 16px 0; overflow-y: auto;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
   }
-  #sidebar .nav-item {
-    display: block; padding: 10px 20px; color: var(--text-dim);
-    text-decoration: none; font-size: 12px; cursor: pointer;
-    border-left: 2px solid transparent; text-transform: uppercase;
-    letter-spacing: 0.06em;
+  .nav-group-label {
+    padding: 6px 24px; font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-mute); font-weight: 600;
+    margin-top: 4px;
   }
-  #sidebar .nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text); }
-  #sidebar .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 24px; color: var(--text-mid);
+    text-decoration: none; font-size: 13.5px; cursor: pointer;
+    font-weight: 500;
+    position: relative;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .nav-item .icon {
+    width: 18px; height: 18px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-dim);
+    transition: color 0.15s ease;
+  }
+  .nav-item:hover {
+    color: var(--text); background: var(--bg-hover);
+  }
+  .nav-item:hover .icon { color: var(--text-mid); }
+  .nav-item.active {
+    color: var(--text);
+    background: linear-gradient(90deg, rgba(124,157,245,0.1) 0%, transparent 90%);
+  }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+    background: var(--gradient-primary); border-radius: 0 3px 3px 0;
+    box-shadow: 0 0 10px rgba(124,157,245,0.6);
+  }
+  .nav-item.active .icon { color: var(--accent); }
 
-  main { padding: 20px 24px; overflow-y: auto; }
-  main h1 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em;
-             color: var(--text-dim); margin: 0 0 16px 0; font-weight: 600; }
+  main {
+    padding: 28px 32px 60px;
+    overflow-y: auto;
+    max-width: 1600px;
+    animation: fadeIn 0.25s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .page-title {
+    display: flex; align-items: baseline; gap: 12px;
+    margin: 0 0 22px 0;
+  }
+  .page-title h1 {
+    margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .page-title .sub {
+    color: var(--text-dim); font-size: 13px; font-weight: 400;
+  }
 
-  /* ===== KPI cards ===== */
+  /* =========== KPI cards =========== */
   .kpi-row {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px; margin-bottom: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
   }
   .kpi {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 4px; padding: 12px 16px;
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-panel) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset,
+                0 6px 20px -8px rgba(0,0,0,0.5);
+    transition: transform 0.2s ease, border-color 0.2s ease;
   }
+  .kpi:hover { transform: translateY(-1px); border-color: var(--border-lit); }
+  .kpi::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--gradient-primary); opacity: 0.5;
+  }
+  .kpi.up::before  { background: var(--gradient-live); }
+  .kpi.down::before{ background: var(--gradient-alert); }
   .kpi .label {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-dim); margin-bottom: 4px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--text-mute); margin-bottom: 8px; font-weight: 600;
   }
   .kpi .value {
-    font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums;
-    font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 26px; font-weight: 600; letter-spacing: -0.02em;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
   }
-  .kpi .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .kpi .sub {
+    font-size: 12px; color: var(--text-dim); margin-top: 4px;
+  }
 
-  /* ===== Panels & tables ===== */
+  /* =========== Panels =========== */
   .panel {
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 4px; margin-bottom: 16px; overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 16px; overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset,
+                0 4px 16px -6px rgba(0,0,0,0.4);
+    animation: slideUp 0.3s ease;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
   .panel-header {
-    padding: 10px 16px; border-bottom: 1px solid var(--border);
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-dim); background: rgba(255,255,255,0.02);
     display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-elev) 0%, transparent 100%);
   }
-  .panel-header .count { color: var(--text-mute); font-size: 10px; }
-  .panel-body { padding: 12px 16px; }
+  .panel-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  .panel-badge {
+    padding: 2px 10px; border-radius: 999px;
+    background: rgba(124,157,245,0.1); color: var(--accent);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .panel-badge.up   { background: rgba(34,197,94,0.12); color: var(--up); }
+  .panel-badge.warn { background: rgba(245,158,11,0.12); color: var(--warn); }
+  .panel-badge.down { background: rgba(239,68,68,0.12); color: var(--down); }
+  .panel-badge.dim  { background: rgba(125,133,144,0.12); color: var(--text-dim); }
+  .panel-body { padding: 16px 20px; }
   .panel-body.no-pad { padding: 0; }
 
+  /* =========== Tables =========== */
   table.data {
-    width: 100%; border-collapse: collapse; font-size: 12px;
+    width: 100%; border-collapse: collapse; font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
   table.data th, table.data td {
-    padding: 8px 12px; text-align: right;
+    padding: 11px 16px; text-align: right;
     border-bottom: 1px solid var(--border);
   }
   table.data th:first-child, table.data td:first-child { text-align: left; }
   table.data thead th {
-    background: rgba(255,255,255,0.02); color: var(--text-dim);
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-    font-weight: 600; border-bottom: 1px solid var(--border);
+    background: transparent; color: var(--text-mute);
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+    font-weight: 600; padding-top: 12px; padding-bottom: 12px;
   }
-  table.data tbody tr:hover { background: rgba(255,255,255,0.02); }
+  table.data tbody tr {
+    transition: background 0.12s ease;
+  }
+  table.data tbody tr:hover {
+    background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+  }
   table.data tbody tr.selected {
-    background: rgba(88,166,255,0.08);
+    background: linear-gradient(90deg, rgba(124,157,245,0.1) 0%, rgba(124,157,245,0.02) 100%);
+  }
+  table.data tbody tr.selected td:first-child {
     box-shadow: inset 3px 0 0 var(--accent);
   }
-  table.data .num { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+  table.data tbody tr:last-child td { border-bottom: none; }
+  table.data .num {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  }
 
+  /* =========== Badges =========== */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 6px;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 700; font-family: "SF Mono", monospace;
+  }
+  .badge.up   { background: rgba(34,197,94,0.12);  color: var(--up); }
+  .badge.down { background: rgba(239,68,68,0.12);  color: var(--down); }
+  .badge.warn { background: rgba(245,158,11,0.12); color: var(--warn); }
+  .badge.dim  { background: rgba(125,133,144,0.1); color: var(--text-dim); }
+  .badge.accent{ background: rgba(124,157,245,0.14); color: var(--accent); }
+
+  /* =========== Grid utilities =========== */
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
   @media (max-width: 900px) {
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    #layout { grid-template-columns: 60px 1fr; }
+    .nav-item span:not(.icon) { display: none; }
+    .nav-group-label { text-align: center; padding: 6px 8px; }
   }
 
+  /* =========== Charts =========== */
+  svg.chart { display: block; width: 100%; height: 220px; }
+
+  /* =========== Empty states =========== */
+  .empty {
+    padding: 40px 20px; text-align: center;
+    color: var(--text-mute); font-size: 13px;
+  }
+  .empty .icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border-radius: 12px;
+    background: var(--bg-elev); color: var(--text-mute);
+    margin-bottom: 12px;
+  }
+  .empty .msg { display: block; margin-bottom: 6px; color: var(--text-dim); }
+  .empty code { background: var(--bg-elev); padding: 2px 8px; border-radius: 5px;
+                color: var(--accent); font-size: 12px; }
+
+  /* =========== Preformatted =========== */
   pre {
-    font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
-    font-size: 12px; margin: 0; white-space: pre-wrap;
-    color: var(--text);
+    margin: 0; padding: 12px 14px;
+    background: var(--bg-panel); border-radius: 8px;
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 12px; line-height: 1.55;
+    color: var(--text-mid); white-space: pre-wrap; word-break: break-word;
+    max-height: 620px; overflow-y: auto;
   }
 
-  .empty { padding: 24px; text-align: center; color: var(--text-mute);
-           font-size: 12px; }
-
-  .badge {
-    display: inline-block; padding: 2px 8px; border-radius: 3px;
-    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-    font-weight: 600;
+  /* =========== Links =========== */
+  a.link {
+    color: var(--accent); text-decoration: none; cursor: pointer;
+    transition: color 0.12s;
   }
-  .badge.up    { background: rgba(38,162,105,0.15); color: var(--up); }
-  .badge.down  { background: rgba(229,72,77,0.15);   color: var(--down); }
-  .badge.warn  { background: rgba(240,180,41,0.15);  color: var(--warn); }
-  .badge.dim   { background: rgba(139,152,165,0.12); color: var(--text-dim); }
+  a.link:hover { color: var(--accent-2); text-decoration: underline; }
 
-  a.link { color: var(--accent); text-decoration: none; cursor: pointer; }
-  a.link:hover { text-decoration: underline; }
-
-  svg.chart { display: block; width: 100%; height: 200px; }
-
-  select, button {
-    background: var(--card); color: var(--text);
-    border: 1px solid var(--border); border-radius: 3px;
-    padding: 4px 10px; font-size: 12px;
-    font-family: inherit;
+  /* =========== Loading skeleton =========== */
+  .loading {
+    padding: 40px; text-align: center; color: var(--text-mute); font-size: 12px;
+    letter-spacing: 0.08em; text-transform: uppercase;
   }
-  button { cursor: pointer; }
-  button:hover { border-color: var(--accent); }
+  .loading::after {
+    content: ""; display: inline-block; width: 4px; height: 4px; margin-left: 6px;
+    border-radius: 50%; background: var(--accent);
+    box-shadow: 8px 0 0 var(--accent), 16px 0 0 var(--accent);
+    animation: dots 1.4s ease-in-out infinite;
+  }
+  @keyframes dots {
+    0%,80%,100% { opacity: 0.25; }
+    40%         { opacity: 1; }
+  }
 </style>
 </head>
 <body>
+
+<!-- Top bar -->
 <div id="topbar">
-  <div class="brand">RABBIT<span class="accent"> HUNTER</span> <span class="mute mono" style="margin-left:12px">v0.2</span></div>
-  <div class="status">
-    <span id="tick-status"><span class="dot"></span>connecting…</span>
-    <span id="tick-time" class="mono"></span>
+  <div class="brand">
+    <span class="brand-logo">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/>
+      </svg>
+    </span>
+    <span class="brand-name">RABBIT <span class="grad">HUNTER</span></span>
+    <span class="brand-ver">v0.2</span>
+  </div>
+  <div class="status-cluster">
+    <span id="tick-status" class="status-pill">
+      <span class="status-dot"></span>
+      <span id="tick-status-text">连接中</span>
+    </span>
+    <span id="tick-time" class="clock mono"></span>
   </div>
 </div>
 
 <div id="layout">
+  <!-- Sidebar -->
   <nav id="sidebar">
-    <a class="nav-item" data-view="dashboard">Dashboard</a>
-    <a class="nav-item" data-view="shadow">Shadow</a>
-    <a class="nav-item" data-view="backtests">Backtests</a>
-    <a class="nav-item" data-view="analytics">Analytics</a>
-    <a class="nav-item" data-view="models">Models</a>
-    <a class="nav-item" data-view="config">Config</a>
-    <a class="nav-item" data-view="data">Data</a>
+    <div class="nav-group-label">操盘</div>
+    <a class="nav-item" data-view="dashboard">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      </span>
+      <span>仪表盘</span>
+    </a>
+    <a class="nav-item" data-view="shadow">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </span>
+      <span>影子交易</span>
+    </a>
+
+    <div class="nav-group-label">研究</div>
+    <a class="nav-item" data-view="backtests">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+      </span>
+      <span>回测报告</span>
+    </a>
+    <a class="nav-item" data-view="analytics">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.5 4.5"/></svg>
+      </span>
+      <span>数据分析</span>
+    </a>
+    <a class="nav-item" data-view="models">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3v1a3 3 0 0 0-2 2.8V15a3 3 0 0 0 3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-1.5"/><path d="M12 2a3 3 0 0 1 3 3v1a3 3 0 0 1 3 3v1a3 3 0 0 1 2 2.8V15a3 3 0 0 1-3 3 3 3 0 0 1-3 3 3 3 0 0 1-3-1.5"/></svg>
+      </span>
+      <span>模型仓库</span>
+    </a>
+
+    <div class="nav-group-label">系统</div>
+    <a class="nav-item" data-view="config">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </span>
+      <span>配置管理</span>
+    </a>
+    <a class="nav-item" data-view="data">
+      <span class="icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+      </span>
+      <span>数据健康</span>
+    </a>
   </nav>
+
   <main id="main">
     <div id="content"></div>
   </main>
 </div>
 
 <script>
-/* ===== Utilities ===== */
+/* ===================== Utilities ===================== */
 const fmtCur = (n, dp=2) => (n == null ? "—" : (n < 0 ? "-" : "") + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp }));
 const fmtNum = (n, dp=2) => (n == null || isNaN(n) ? "—" : Number(n).toFixed(dp));
 const fmtPct = (n, dp=2) => (n == null ? "—" : (n * 100).toFixed(dp) + "%");
 const fmtPnl = (n, dp=2) => (n == null ? "—" : (n >= 0 ? "+" : "") + n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp }));
 const fmtTime = ms => ms ? new Date(ms).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "";
 const upDown = n => n > 0 ? "up" : n < 0 ? "down" : "dim";
+const kpiCls = n => n > 0 ? "up" : n < 0 ? "down" : "";
 
 async function api(path) {
   const r = await fetch(path);
@@ -214,12 +468,39 @@ async function api(path) {
   return r.json();
 }
 
-/* ===== Router ===== */
+/* ===================== 中文映射 ===================== */
+const CLUSTER_CN = {
+  "1_momentum_breakdown":  "动量崩跌",
+  "2_momentum_breakout":   "动量突破",
+  "3_range_breakout":      "区间突破",
+  "4_trend_continuation":  "顺势延续",
+  "5_trend_reversal":      "趋势反转",
+  "6_other":               "其他",
+};
+const STATUS_CN = {
+  healthy: "健康", stale: "滞后", gaps: "有缺口",
+  missing: "缺失", empty: "空文件",
+};
+const SIDE_CN = { long: "多", short: "空" };
+const EXIT_CN = {
+  take_profit: "止盈", stop_loss: "止损",
+  timeout: "超时", trailing_stop: "移动止损",
+  circuit_breaker: "熔断", funding_settlement: "资金费结算",
+};
+const ACTION_CN = {
+  promote: "已启用", no_prior_active: "首次启用",
+  reject_no_improvement: "拒绝-无提升",
+  reject_below_min: "拒绝-低于阈值",
+  reject_error: "训练异常",
+};
+
+/* ===================== Router ===================== */
 const views = {};
 let currentView = "dashboard";
 let refreshHandle = null;
 
 function nav(view) {
+  if (currentView !== view) window.selectedBacktest = null;
   currentView = view;
   document.querySelectorAll("#sidebar .nav-item").forEach(a => {
     a.classList.toggle("active", a.dataset.view === view);
@@ -234,33 +515,40 @@ document.querySelectorAll("#sidebar .nav-item").forEach(a => {
   a.addEventListener("click", () => nav(a.dataset.view));
 });
 
-/* ===== Header refresh ===== */
+/* ===================== Live status pill ===================== */
 async function refreshTick() {
   try {
     const s = await api("/api/shadow/state");
-    const el = document.getElementById("tick-status");
+    const pill = document.getElementById("tick-status");
+    const txt  = document.getElementById("tick-status-text");
+    pill.classList.remove("stale", "down");
     if (!s.has_ledger) {
-      el.innerHTML = `<span class="dot stale"></span>no ledger`;
+      pill.classList.add("stale");
+      txt.textContent = "无账本";
     } else {
       const stale = s.minutes_since_last_bar > 120;
-      const errs = s.consecutive_errors >= 3;
-      const cls = errs ? "down" : stale ? "stale" : "";
-      const status = errs ? "runner errors" : stale ? "stale" : "live";
-      el.innerHTML = `<span class="dot ${cls}"></span>${status}`;
+      const errs  = s.consecutive_errors >= 3;
+      if (errs)      { pill.classList.add("down");  txt.textContent = "异常"; }
+      else if (stale){ pill.classList.add("stale"); txt.textContent = "滞后"; }
+      else           {                              txt.textContent = "运行中"; }
     }
-    document.getElementById("tick-time").textContent = new Date().toISOString().replace("T", " ").slice(0, 19);
-  } catch (e) { /* ignore */ }
+    document.getElementById("tick-time").textContent =
+      new Date().toISOString().replace("T", " ").slice(0, 19);
+  } catch { /* ignore */ }
 }
 setInterval(refreshTick, 15_000);
 refreshTick();
 
-/* ===== Chart utility ===== */
-function svgLineChart(points, valueKey, height = 200, stroke = "#58a6ff", fill = "rgba(88,166,255,0.10)") {
-  if (!points.length) return `<div class="empty">no data</div>`;
+/* ===================== Chart utility ===================== */
+function svgLineChart(points, valueKey, opts = {}) {
+  const { height = 220, stroke = "#7c9df5", gradientId = "gLine",
+          fillFrom = "rgba(124,157,245,0.28)",
+          fillTo   = "rgba(124,157,245,0.02)" } = opts;
+  if (!points.length) return emptyState("暂无数据");
   const vals = points.map(p => p[valueKey]);
   const yMin = Math.min(...vals), yMax = Math.max(...vals);
   const yRange = (yMax - yMin) || 1;
-  const w = 900, h = height, pad = 20;
+  const w = 1000, h = height, pad = 24;
   const iw = w - 2 * pad, ih = h - 2 * pad;
   const pts = vals.map((v, i) => {
     const x = pad + (i / (vals.length - 1 || 1)) * iw;
@@ -269,19 +557,42 @@ function svgLineChart(points, valueKey, height = 200, stroke = "#58a6ff", fill =
   }).join(" ");
   const area = `${pad},${pad + ih} ` + pts + ` ${pad + iw},${pad + ih}`;
   return `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <polygon points="${area}" fill="${fill}" stroke="none"/>
-    <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
-    <text x="${pad}" y="14" fill="#8b98a5" font-size="10">max ${yMax.toFixed(2)}</text>
-    <text x="${pad}" y="${h - 4}" fill="#8b98a5" font-size="10">min ${yMin.toFixed(2)}</text>
+    <defs>
+      <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${fillFrom}"/>
+        <stop offset="100%" stop-color="${fillTo}"/>
+      </linearGradient>
+    </defs>
+    <polygon points="${area}" fill="url(#${gradientId})" stroke="none"/>
+    <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="${pad}" y="16" fill="#7d8590" font-size="10" font-family="system-ui">
+      峰值 ${yMax.toLocaleString(undefined, {maximumFractionDigits: 2})}
+    </text>
+    <text x="${pad}" y="${h - 6}" fill="#7d8590" font-size="10" font-family="system-ui">
+      低点 ${yMin.toLocaleString(undefined, {maximumFractionDigits: 2})}
+    </text>
   </svg>`;
 }
 
-/* =====================================================
-   View: Dashboard
-   ===================================================== */
+function emptyState(msg, hint = "") {
+  return `<div class="empty">
+    <span class="icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+    </span>
+    <span class="msg">${msg}</span>
+    ${hint ? `<span class="mute" style="font-size:11px">${hint}</span>` : ""}
+  </div>`;
+}
+
+/* ===================== View: 仪表盘 ===================== */
 views.dashboard = async () => {
-  const container = document.getElementById("content");
-  container.innerHTML = `<h1>Dashboard</h1><div id="dash-body">loading…</div>`;
+  const el = document.getElementById("content");
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>仪表盘</h1><span class="sub">实时账户与策略概览</span>
+    </div>
+    <div id="dash-body"><div class="loading">加载中</div></div>`;
   try {
     const [state, hist, positions, alerts, clusters] = await Promise.all([
       api("/api/shadow/state"),
@@ -292,61 +603,91 @@ views.dashboard = async () => {
     ]);
     const body = document.getElementById("dash-body");
     if (!state.has_ledger) {
-      body.innerHTML = `<div class="empty">Shadow runner has not persisted a ledger yet.<br>Run <code class="mono">rabbit shadow run</code> first.</div>`;
+      body.innerHTML = emptyState(
+        "影子账本尚未生成",
+        "运行 <code>rabbit shadow run</code> 启动影子模式",
+      );
       return;
     }
     body.innerHTML = `
       <div class="kpi-row">
-        <div class="kpi"><div class="label">Equity</div>
+        <div class="kpi ${kpiCls(state.total_pnl)}">
+          <div class="label">账户净值</div>
           <div class="value ${upDown(state.total_pnl)}">${fmtCur(state.equity)}</div>
-          <div class="sub">initial ${fmtCur(state.initial_capital, 0)}</div></div>
-        <div class="kpi"><div class="label">Total PnL</div>
+          <div class="sub">初始 ${fmtCur(state.initial_capital, 0)}</div>
+        </div>
+        <div class="kpi ${kpiCls(state.total_pnl)}">
+          <div class="label">总盈亏</div>
           <div class="value ${upDown(state.total_pnl)}">${fmtPnl(state.total_pnl)}</div>
-          <div class="sub">${fmtPct(state.pnl_pct)}</div></div>
-        <div class="kpi"><div class="label">Drawdown</div>
+          <div class="sub">${fmtPct(state.pnl_pct)}</div>
+        </div>
+        <div class="kpi ${state.drawdown_pct >= 0.10 ? 'down' : ''}">
+          <div class="label">当前回撤</div>
           <div class="value ${state.drawdown_pct >= 0.10 ? 'down' : ''}">${fmtPct(state.drawdown_pct)}</div>
-          <div class="sub">peak ${fmtCur(state.peak_equity, 0)}</div></div>
-        <div class="kpi"><div class="label">Winrate</div>
+          <div class="sub">峰值 ${fmtCur(state.peak_equity, 0)}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">胜率</div>
           <div class="value">${fmtPct(state.winrate, 1)}</div>
-          <div class="sub">${state.closed_trades} closed</div></div>
-        <div class="kpi"><div class="label">Profit factor</div>
+          <div class="sub">${state.closed_trades} 笔已平</div>
+        </div>
+        <div class="kpi">
+          <div class="label">盈亏比</div>
           <div class="value">${fmtNum(state.profit_factor)}</div>
-          <div class="sub">PF</div></div>
-        <div class="kpi"><div class="label">Open positions</div>
+          <div class="sub">Profit Factor</div>
+        </div>
+        <div class="kpi">
+          <div class="label">当前持仓</div>
           <div class="value">${state.open_positions}</div>
-          <div class="sub">live</div></div>
+          <div class="sub">笔</div>
+        </div>
       </div>
+
       <div class="panel">
-        <div class="panel-header"><span>Equity curve — 7 day</span></div>
+        <div class="panel-header">
+          <span class="panel-title">近 7 日净值曲线</span>
+          <span class="panel-badge dim">${hist.points.length} 个采样点</span>
+        </div>
         <div class="panel-body no-pad">${svgLineChart(hist.points, "equity")}</div>
       </div>
+
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-header"><span>Open positions</span><span class="count">${positions.positions.length}</span></div>
+          <div class="panel-header">
+            <span class="panel-title">当前持仓</span>
+            <span class="panel-badge">${positions.positions.length}</span>
+          </div>
           <div class="panel-body no-pad">${renderPositionsTable(positions.positions)}</div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span>Alerts (24h)</span><span class="count">${alerts.alerts.length}</span></div>
+          <div class="panel-header">
+            <span class="panel-title">最近告警 (24h)</span>
+            <span class="panel-badge ${alerts.alerts.length ? 'warn' : 'up'}">${alerts.alerts.length}</span>
+          </div>
           <div class="panel-body no-pad">${renderAlertsTable(alerts.alerts)}</div>
         </div>
       </div>
+
       <div class="panel">
-        <div class="panel-header"><span>Live per-cluster performance</span><span class="count">${clusters.total_trades} trades</span></div>
+        <div class="panel-header">
+          <span class="panel-title">实时聚类表现</span>
+          <span class="panel-badge">${clusters.total_trades} 笔</span>
+        </div>
         <div class="panel-body no-pad">${renderClustersTable(clusters.clusters)}</div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
-    document.getElementById("dash-body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("dash-body").innerHTML =
+      emptyState(`加载失败: ${e.message}`);
   }
 };
 
 function renderPositionsTable(rows) {
-  if (!rows.length) return `<div class="empty">no open positions</div>`;
+  if (!rows.length) return emptyState("当前无持仓");
   return `<table class="data"><thead><tr>
-    <th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Stop</th><th>TP</th></tr></thead><tbody>
+    <th>币种</th><th>方向</th><th>数量</th><th>开仓价</th><th>止损</th><th>止盈</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td>${r.symbol}</td>
-      <td><span class="badge ${r.side === 'long' ? 'up' : 'down'}">${r.side}</span></td>
+      <td><span class="badge ${r.side === 'long' ? 'up' : 'down'}">${SIDE_CN[r.side] || r.side}</span></td>
       <td class="num">${r.size.toFixed(4)}</td>
       <td class="num">${fmtNum(r.entry_price)}</td>
       <td class="num">${fmtNum(r.stop)}</td>
@@ -355,9 +696,9 @@ function renderPositionsTable(rows) {
 }
 
 function renderAlertsTable(rows) {
-  if (!rows.length) return `<div class="empty" style="color:var(--up)">all clear</div>`;
+  if (!rows.length) return `<div class="empty"><span class="msg" style="color:var(--up)">全部正常</span></div>`;
   return `<table class="data"><thead><tr>
-    <th>Time (UTC)</th><th>Alert</th></tr></thead><tbody>
+    <th>时间 (UTC)</th><th>告警</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td class="mono dim">${fmtTime(r.timestamp_ms).slice(0, 16)}</td>
       <td class="warn">${r.alerts}</td>
@@ -365,11 +706,20 @@ function renderAlertsTable(rows) {
 }
 
 function renderClustersTable(rows) {
-  if (!rows.length) return `<div class="empty">no closed trades yet</div>`;
+  if (!rows.length) return emptyState("尚无已平仓交易");
   return `<table class="data"><thead><tr>
-    <th>Cluster</th><th>N</th><th>Winrate</th><th>Total PnL</th><th>Avg</th><th>PF</th><th>Sharpe</th></tr></thead><tbody>
-    ${rows.map(r => r.n === 0 ? `<tr><td>${r.cluster}<div class="mute" style="font-size:10px">${r.description}</div></td><td colspan="6" class="mute">—</td></tr>` : `<tr>
-      <td>${r.cluster}<div class="mute" style="font-size:10px">${r.description}</div></td>
+    <th>聚类</th><th>笔数</th><th>胜率</th><th>总盈亏</th><th>均值</th><th>盈亏比</th><th>夏普</th></tr></thead><tbody>
+    ${rows.map(r => r.n === 0 ? `<tr>
+      <td>
+        <div>${CLUSTER_CN[r.cluster] || r.cluster}</div>
+        <div class="mute" style="font-size:10.5px;margin-top:2px">${r.description}</div>
+      </td>
+      <td colspan="6" class="mute">—</td>
+    </tr>` : `<tr>
+      <td>
+        <div>${CLUSTER_CN[r.cluster] || r.cluster}</div>
+        <div class="mute" style="font-size:10.5px;margin-top:2px">${r.description}</div>
+      </td>
       <td class="num">${r.n}</td>
       <td class="num ${r.winrate >= 0.5 ? 'up' : 'down'}">${fmtPct(r.winrate, 1)}</td>
       <td class="num ${upDown(r.total_pnl)}">${fmtPnl(r.total_pnl)}</td>
@@ -379,12 +729,14 @@ function renderClustersTable(rows) {
     </tr>`).join("")}</tbody></table>`;
 }
 
-/* =====================================================
-   View: Shadow — deeper detail
-   ===================================================== */
+/* ===================== View: 影子交易 ===================== */
 views.shadow = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Shadow — Live Detail</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>影子交易</h1><span class="sub">纸面执行与实时表现</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const [state, hist, trades] = await Promise.all([
       api("/api/shadow/state"),
@@ -392,64 +744,77 @@ views.shadow = async () => {
       api("/api/shadow/trades?limit=50"),
     ]);
     if (!state.has_ledger) {
-      document.getElementById("body").innerHTML = `<div class="empty">no shadow ledger</div>`;
+      document.getElementById("body").innerHTML = emptyState("影子账本尚未生成");
       return;
     }
     document.getElementById("body").innerHTML = `
       <div class="panel">
-        <div class="panel-header"><span>Equity — 30 day</span></div>
+        <div class="panel-header">
+          <span class="panel-title">近 30 日净值</span>
+          <span class="panel-badge dim">${hist.points.length} 点</span>
+        </div>
         <div class="panel-body no-pad">${svgLineChart(hist.points, "equity")}</div>
       </div>
       <div class="panel">
-        <div class="panel-header"><span>Drawdown from peak (%)</span></div>
-        <div class="panel-body no-pad">${svgLineChart(hist.points.map(p => ({...p, dd_pct: p.drawdown_from_peak_pct * 100})), "dd_pct", 160, "#e5484d", "rgba(229,72,77,0.10)")}</div>
+        <div class="panel-header"><span class="panel-title">距峰值回撤 (%)</span></div>
+        <div class="panel-body no-pad">${svgLineChart(
+          hist.points.map(p => ({...p, dd_pct: p.drawdown_from_peak_pct * 100})),
+          "dd_pct",
+          { stroke: "#ef4444", fillFrom: "rgba(239,68,68,0.28)",
+            fillTo: "rgba(239,68,68,0.02)", gradientId: "gDd" })}</div>
       </div>
       <div class="panel">
-        <div class="panel-header"><span>Recent closed trades</span><span class="count">${trades.trades.length}</span></div>
+        <div class="panel-header">
+          <span class="panel-title">最近已平仓交易</span>
+          <span class="panel-badge">${trades.trades.length}</span>
+        </div>
         <div class="panel-body no-pad">${renderTradesTable(trades.trades)}</div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
 function renderTradesTable(rows) {
-  if (!rows.length) return `<div class="empty">no closed trades</div>`;
+  if (!rows.length) return emptyState("暂无已平仓交易");
   return `<table class="data"><thead><tr>
-    <th>Symbol</th><th>Side</th><th>PnL</th><th>Exit</th><th>Bars</th><th>Time</th></tr></thead><tbody>
+    <th>币种</th><th>方向</th><th>盈亏</th><th>出场</th><th>持仓 K 线</th><th>时间</th></tr></thead><tbody>
     ${rows.map(r => `<tr>
       <td>${r.symbol}</td>
-      <td><span class="badge ${r.side === 'long' ? 'up' : 'down'}">${r.side}</span></td>
+      <td><span class="badge ${r.side === 'long' ? 'up' : 'down'}">${SIDE_CN[r.side] || r.side}</span></td>
       <td class="num ${upDown(r.pnl)}">${fmtPnl(r.pnl)}</td>
-      <td class="mute">${r.exit_reason || ""}</td>
+      <td class="mute">${EXIT_CN[r.exit_reason] || r.exit_reason || ""}</td>
       <td class="num mute">${r.bars_held == null ? "—" : r.bars_held}</td>
       <td class="mono dim">${fmtTime(r.exit_time_ms).slice(0, 16)}</td>
     </tr>`).join("")}</tbody></table>`;
 }
 
-/* =====================================================
-   View: Backtests
-   Selected report is stashed on `window.selectedBacktest` so a 30s
-   auto-refresh doesn't wipe the detail panel — after the list re-renders
-   we re-open the previously-selected report.
-   ===================================================== */
+/* ===================== View: 回测报告 ===================== */
 views.backtests = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Backtests</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>回测报告</h1><span class="sub">历史策略验证结果</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const list = await api("/api/backtests");
     if (!list.reports.length) {
-      document.getElementById("body").innerHTML = `<div class="empty">no reports</div>`;
+      document.getElementById("body").innerHTML = emptyState("尚无回测报告",
+        "运行 <code>rabbit backtest</code> 生成");
       return;
     }
     const sel = window.selectedBacktest;
     document.getElementById("body").innerHTML = `
       <div class="panel">
-        <div class="panel-header"><span>Reports</span><span class="count">${list.reports.length}</span></div>
+        <div class="panel-header">
+          <span class="panel-title">所有报告</span>
+          <span class="panel-badge">${list.reports.length}</span>
+        </div>
         <div class="panel-body no-pad">
           <table class="data"><thead><tr>
-            <th>Name</th><th>Trades</th><th>WR</th><th>PnL</th><th>PF</th><th>Sharpe</th><th>Max DD</th></tr></thead><tbody>
+            <th>报告名称</th><th>交易数</th><th>胜率</th><th>盈亏</th>
+            <th>盈亏比</th><th>夏普</th><th>最大回撤</th></tr></thead><tbody>
             ${list.reports.map(r => `<tr onclick="showBacktest('${r.name}')" class="${sel === r.name ? 'selected' : ''}" style="cursor:pointer">
               <td><a class="link">${r.name}</a></td>
               <td class="num">${r.n_trades}</td>
@@ -462,24 +827,22 @@ views.backtests = async () => {
           </tbody></table>
         </div>
       </div>
-      <div id="detail"></div>
-    `;
-    // Restore the drill-down if the user had opened one before the refresh
-    if (sel) { showBacktest(sel); }
+      <div id="detail"></div>`;
+    if (sel) showBacktest(sel);
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
 window.showBacktest = async (name) => {
   window.selectedBacktest = name;
-  // Highlight the currently-selected row without a full re-render
   document.querySelectorAll("#body table.data tbody tr").forEach(tr => {
     tr.classList.toggle("selected",
       tr.querySelector("a.link")?.textContent === name);
   });
   const detail = document.getElementById("detail");
-  detail.innerHTML = `<div class="empty">loading ${name}…</div>`;
+  if (!detail) return;
+  detail.innerHTML = `<div class="loading">加载报告 ${name}</div>`;
   try {
     const [d, cl] = await Promise.all([
       api(`/api/backtests/${name}`),
@@ -487,40 +850,50 @@ window.showBacktest = async (name) => {
     ]);
     detail.innerHTML = `
       <div class="panel">
-        <div class="panel-header"><span>${name} — summary</span></div>
+        <div class="panel-header">
+          <span class="panel-title">${name} · 汇总指标</span>
+        </div>
         <div class="panel-body">
           <div class="kpi-row">
-            <div class="kpi"><div class="label">Trades</div><div class="value">${d.n_trades}</div></div>
-            <div class="kpi"><div class="label">Winrate</div><div class="value">${fmtPct(d.winrate, 1)}</div></div>
-            <div class="kpi"><div class="label">Total PnL</div><div class="value ${upDown(d.total_pnl)}">${fmtPnl(d.total_pnl)}</div></div>
-            <div class="kpi"><div class="label">Sharpe</div><div class="value">${fmtNum(d.sharpe_est)}</div></div>
-            <div class="kpi"><div class="label">PF</div><div class="value">${d.profit_factor == null ? "∞" : fmtNum(d.profit_factor)}</div></div>
-            <div class="kpi"><div class="label">Max DD</div><div class="value down">${fmtPnl(d.max_drawdown)}</div></div>
+            <div class="kpi"><div class="label">交易数</div><div class="value">${d.n_trades}</div></div>
+            <div class="kpi"><div class="label">胜率</div><div class="value">${fmtPct(d.winrate, 1)}</div></div>
+            <div class="kpi ${kpiCls(d.total_pnl)}"><div class="label">总盈亏</div>
+              <div class="value ${upDown(d.total_pnl)}">${fmtPnl(d.total_pnl)}</div></div>
+            <div class="kpi"><div class="label">夏普</div><div class="value">${fmtNum(d.sharpe_est)}</div></div>
+            <div class="kpi"><div class="label">盈亏比</div>
+              <div class="value">${d.profit_factor == null ? "∞" : fmtNum(d.profit_factor)}</div></div>
+            <div class="kpi down"><div class="label">最大回撤</div>
+              <div class="value down">${fmtPnl(d.max_drawdown)}</div></div>
           </div>
         </div>
       </div>
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-header"><span>Top 20 trades by |PnL|</span></div>
+          <div class="panel-header">
+            <span class="panel-title">按 |盈亏| 排前 20</span>
+          </div>
           <div class="panel-body no-pad">${renderTradesTable(d.top_trades)}</div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span>Per-cluster performance</span></div>
+          <div class="panel-header">
+            <span class="panel-title">聚类表现</span>
+          </div>
           <div class="panel-body no-pad">${renderClustersTable(cl.clusters)}</div>
         </div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
-    detail.innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    detail.innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
-/* =====================================================
-   View: Analytics (baselines + drift)
-   ===================================================== */
+/* ===================== View: 分析 ===================== */
 views.analytics = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Analytics</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>数据分析</h1><span class="sub">聚类表现与漂移监控</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const [clusters, baselines] = await Promise.all([
       api("/api/analytics/clusters/shadow"),
@@ -528,70 +901,81 @@ views.analytics = async () => {
     ]);
     document.getElementById("body").innerHTML = `
       <div class="panel">
-        <div class="panel-header"><span>Live per-cluster (shadow)</span><span class="count">${clusters.total_trades} trades</span></div>
+        <div class="panel-header">
+          <span class="panel-title">实时聚类表现 (影子)</span>
+          <span class="panel-badge">${clusters.total_trades} 笔</span>
+        </div>
         <div class="panel-body no-pad">${renderClustersTable(clusters.clusters)}</div>
       </div>
       <div class="panel">
-        <div class="panel-header"><span>Baselines</span><span class="count">${baselines.baselines.length}</span></div>
-        <div class="panel-body">
-          ${baselines.baselines.length === 0 ? '<div class="empty">no baselines. Run <code class="mono">rabbit baseline</code> or <code class="mono">rabbit baseline-features</code>.</div>' : `
-            <table class="data"><thead><tr><th>Name</th><th>Size</th><th>Drift</th></tr></thead><tbody>
+        <div class="panel-header">
+          <span class="panel-title">基线快照</span>
+          <span class="panel-badge">${baselines.baselines.length}</span>
+        </div>
+        <div class="panel-body ${baselines.baselines.length ? 'no-pad' : ''}">
+          ${baselines.baselines.length === 0 ?
+            emptyState("暂无基线", "运行 <code>rabbit baseline</code> 或 <code>rabbit baseline-features</code>") : `
+            <table class="data"><thead><tr>
+              <th>文件</th><th>大小</th><th>漂移检查</th></tr></thead><tbody>
             ${baselines.baselines.map(b => `<tr>
               <td>${b.name}</td>
               <td class="num mute">${(b.size_bytes/1024).toFixed(1)} KB</td>
-              <td><a class="link" onclick="showDrift('${b.name}')">check drift →</a></td>
-            </tr>`).join("")}
-            </tbody></table>
-          `}
+              <td><a class="link" onclick="showDrift('${b.name}')">检查漂移 →</a></td>
+            </tr>`).join("")}</tbody></table>`}
         </div>
       </div>
-      <div id="drift-panel"></div>
-    `;
+      <div id="drift-panel"></div>`;
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
 window.showDrift = async (baseline) => {
   const el = document.getElementById("drift-panel");
-  el.innerHTML = `<div class="empty">checking drift…</div>`;
+  el.innerHTML = `<div class="loading">检查漂移</div>`;
   try {
     const d = await api(`/api/analytics/drift?baseline=${encodeURIComponent(baseline)}`);
     if (d.message) {
-      el.innerHTML = `<div class="panel"><div class="panel-header"><span>Drift — ${baseline}</span></div><div class="empty">${d.message}</div></div>`;
+      el.innerHTML = `<div class="panel">
+        <div class="panel-header"><span class="panel-title">漂移 · ${baseline}</span></div>
+        ${emptyState(d.message)}
+      </div>`;
       return;
     }
     el.innerHTML = `<div class="panel">
       <div class="panel-header">
-        <span>Drift — ${baseline}</span>
-        <span class="badge ${d.ok ? 'up' : 'down'}">${d.ok ? 'OK' : 'ALERT'}</span>
+        <span class="panel-title">漂移 · ${baseline}</span>
+        <span class="panel-badge ${d.ok ? 'up' : 'down'}">${d.ok ? '正常' : '预警'}</span>
       </div>
       <div class="panel-body no-pad">
         <table class="data"><thead><tr>
-          <th>Cluster</th><th>N</th><th>Baseline WR</th><th>Live WR</th><th>Δ WR</th><th>z</th><th>Status</th></tr></thead><tbody>
+          <th>聚类</th><th>样本数</th><th>基线胜率</th><th>实盘胜率</th>
+          <th>Δ 胜率</th><th>z 分数</th><th>状态</th></tr></thead><tbody>
           ${d.findings.map(f => `<tr>
-            <td>${f.cluster}</td>
+            <td>${CLUSTER_CN[f.cluster] || f.cluster}</td>
             <td class="num">${f.live_n}</td>
             <td class="num mute">${fmtPct(f.baseline_winrate, 1)}</td>
             <td class="num">${fmtPct(f.live_winrate, 1)}</td>
             <td class="num ${f.winrate_delta >= 0 ? 'up' : 'down'}">${(f.winrate_delta*100).toFixed(1)}pp</td>
             <td class="num">${fmtNum(f.avg_pnl_zscore)}</td>
-            <td><span class="badge ${f.triggered ? 'down' : 'up'}">${f.triggered ? 'drift' : 'ok'}</span></td>
+            <td><span class="badge ${f.triggered ? 'down' : 'up'}">${f.triggered ? '漂移' : '正常'}</span></td>
           </tr>`).join("")}
         </tbody></table>
       </div>
     </div>`;
   } catch (e) {
-    el.innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    el.innerHTML = emptyState(`检查失败: ${e.message}`);
   }
 };
 
-/* =====================================================
-   View: Models
-   ===================================================== */
+/* ===================== View: 模型仓库 ===================== */
 views.models = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Models</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>模型仓库</h1><span class="sub">机器学习模型注册表</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const [ms, log] = await Promise.all([
       api("/api/models"),
@@ -599,13 +983,17 @@ views.models = async () => {
     ]);
     document.getElementById("body").innerHTML = `
       <div class="panel">
-        <div class="panel-header"><span>Registry</span><span class="count">${ms.models.length}</span></div>
-        <div class="panel-body no-pad">
-          ${ms.models.length === 0 ? '<div class="empty">no models</div>' : `
+        <div class="panel-header">
+          <span class="panel-title">模型列表</span>
+          <span class="panel-badge">${ms.models.length}</span>
+        </div>
+        <div class="panel-body ${ms.models.length ? 'no-pad' : ''}">
+          ${ms.models.length === 0 ? emptyState("暂无模型") : `
             <table class="data"><thead><tr>
-              <th></th><th>Version</th><th>Test AUC</th><th>Train AUC</th><th>n_train</th><th>Trained</th></tr></thead><tbody>
-            ${ms.models.map(m => `<tr>
-              <td>${m.is_active ? '<span class="badge up">active</span>' : ''}</td>
+              <th></th><th>版本</th><th>测试 AUC</th><th>训练 AUC</th>
+              <th>训练样本</th><th>训练时间</th></tr></thead><tbody>
+            ${ms.models.map(m => `<tr class="${m.is_active ? 'selected' : ''}">
+              <td>${m.is_active ? '<span class="badge up">生效中</span>' : ''}</td>
               <td class="mono">${m.version}</td>
               <td class="num">${fmtNum(m.test_auc, 4)}</td>
               <td class="num mute">${fmtNum(m.train_auc, 4)}</td>
@@ -615,34 +1003,35 @@ views.models = async () => {
         </div>
       </div>
       <div class="panel">
-        <div class="panel-header"><span>Retrain audit log</span></div>
-        <div class="panel-body no-pad">
-          ${log.entries.length === 0 ? '<div class="empty">no retrain history</div>' : `
+        <div class="panel-header"><span class="panel-title">重训审计日志</span></div>
+        <div class="panel-body ${log.entries.length ? 'no-pad' : ''}">
+          ${log.entries.length === 0 ? emptyState("暂无重训记录") : `
             <table class="data"><thead><tr>
-              <th>Time (UTC)</th><th>Action</th><th>Candidate AUC</th><th>Reason</th></tr></thead><tbody>
+              <th>时间 (UTC)</th><th>动作</th><th>候选 AUC</th><th>原因</th></tr></thead><tbody>
             ${log.entries.map(e => {
               const isPromote = e.action === "promote" || e.action === "no_prior_active";
               return `<tr>
                 <td class="mono dim">${(e.timestamp || "").slice(0, 19)}</td>
-                <td><span class="badge ${isPromote ? 'up' : 'down'}">${e.action}</span></td>
+                <td><span class="badge ${isPromote ? 'up' : 'down'}">${ACTION_CN[e.action] || e.action}</span></td>
                 <td class="num">${fmtNum(e.candidate_test_auc, 4)}</td>
                 <td class="mute">${e.reason}</td>
               </tr>`;
             }).join("")}</tbody></table>`}
         </div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
-/* =====================================================
-   View: Config
-   ===================================================== */
+/* ===================== View: 配置管理 ===================== */
 views.config = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Config</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>配置管理</h1><span class="sub">当前配置与历史快照</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const [current, hist] = await Promise.all([
       api("/api/config/current"),
@@ -651,15 +1040,18 @@ views.config = async () => {
     document.getElementById("body").innerHTML = `
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-header"><span>Current default.yaml</span></div>
-          <div class="panel-body"><pre>${current.content ? escapeHtml(current.content) : "(missing)"}</pre></div>
+          <div class="panel-header"><span class="panel-title">当前配置 (default.yaml)</span></div>
+          <div class="panel-body"><pre>${current.content ? escapeHtml(current.content) : "(缺失)"}</pre></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span>Snapshot history</span><span class="count">${hist.entries.length}</span></div>
-          <div class="panel-body no-pad">
-            ${hist.entries.length === 0 ? '<div class="empty">no snapshots</div>' : `
+          <div class="panel-header">
+            <span class="panel-title">快照历史</span>
+            <span class="panel-badge">${hist.entries.length}</span>
+          </div>
+          <div class="panel-body ${hist.entries.length ? 'no-pad' : ''}">
+            ${hist.entries.length === 0 ? emptyState("暂无快照") : `
               <table class="data"><thead><tr>
-                <th>Idx</th><th>Hash</th><th>Timestamp</th><th>Note</th></tr></thead><tbody>
+                <th>序号</th><th>哈希</th><th>时间戳</th><th>备注</th></tr></thead><tbody>
               ${hist.entries.map(e => `<tr>
                 <td class="mute">${e.index}</td>
                 <td class="mono">${e.config_hash}</td>
@@ -669,18 +1061,17 @@ views.config = async () => {
           </div>
         </div>
       </div>
-      ${hist.entries.length >= 2 ? renderDiffPanel() : ""}
-    `;
+      ${hist.entries.length >= 2 ? renderDiffPanel() : ""}`;
     if (hist.entries.length >= 2) loadDiff();
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
 function renderDiffPanel() {
   return `<div class="panel">
-    <div class="panel-header"><span>Diff — previous vs latest</span></div>
-    <div class="panel-body"><pre id="config-diff">loading…</pre></div>
+    <div class="panel-header"><span class="panel-title">对比 · 上一版本 vs 最新</span></div>
+    <div class="panel-body"><pre id="config-diff">加载中…</pre></div>
   </div>`;
 }
 
@@ -688,48 +1079,56 @@ async function loadDiff() {
   try {
     const d = await api("/api/config/diff?rev_a=previous&rev_b=latest");
     const el = document.getElementById("config-diff");
-    if (!d.diff) { el.textContent = "(no changes)"; return; }
-    // Colorize +/- lines
+    if (!d.diff) { el.textContent = "(无变更)"; return; }
     el.innerHTML = d.diff.split("\n").map(line => {
       if (line.startsWith("+") && !line.startsWith("+++")) return `<span class="up">${escapeHtml(line)}</span>`;
       if (line.startsWith("-") && !line.startsWith("---")) return `<span class="down">${escapeHtml(line)}</span>`;
       if (line.startsWith("@@")) return `<span class="mute">${escapeHtml(line)}</span>`;
       return escapeHtml(line);
     }).join("\n");
-  } catch (e) { /* silent */ }
+  } catch { /* silent */ }
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
-/* =====================================================
-   View: Data health
-   ===================================================== */
+/* ===================== View: 数据健康 ===================== */
 views.data = async () => {
   const el = document.getElementById("content");
-  el.innerHTML = `<h1>Data Pipeline</h1><div id="body">loading…</div>`;
+  el.innerHTML = `
+    <div class="page-title">
+      <h1>数据健康</h1><span class="sub">数据管道状态</span>
+    </div>
+    <div id="body"><div class="loading">加载中</div></div>`;
   try {
     const d = await api("/api/data/health");
-    const status_color = s =>
-      s === "healthy" ? "up" : s === "stale" ? "warn" : "down";
+    const statusBadge = s => ({
+      healthy: 'up', stale: 'warn', gaps: 'down',
+      missing: 'down', empty: 'down',
+    })[s] || 'dim';
     document.getElementById("body").innerHTML = `
       <div class="kpi-row">
-        <div class="kpi"><div class="label">Symbols healthy</div>
-          <div class="value up">${d.summary.healthy} / ${d.summary.total}</div></div>
-        <div class="kpi"><div class="label">Unhealthy</div>
-          <div class="value ${d.summary.unhealthy ? 'down' : ''}">${d.summary.unhealthy}</div></div>
+        <div class="kpi ${d.summary.healthy > 0 ? 'up' : ''}">
+          <div class="label">健康币种</div>
+          <div class="value ${d.summary.healthy > 0 ? 'up' : ''}">${d.summary.healthy} / ${d.summary.total}</div>
+        </div>
+        <div class="kpi ${d.summary.unhealthy ? 'down' : ''}">
+          <div class="label">异常币种</div>
+          <div class="value ${d.summary.unhealthy ? 'down' : ''}">${d.summary.unhealthy}</div>
+        </div>
       </div>
       <div class="panel">
-        <div class="panel-header"><span>Per-symbol health</span></div>
-        <div class="panel-body no-pad">
-          ${d.reports.length === 0 ? '<div class="empty">no data</div>' : `
+        <div class="panel-header"><span class="panel-title">分币种健康详情</span></div>
+        <div class="panel-body ${d.reports.length ? 'no-pad' : ''}">
+          ${d.reports.length === 0 ? emptyState("暂无数据") : `
             <table class="data"><thead><tr>
-              <th>Symbol</th><th>Interval</th><th>Status</th><th>Rows</th><th>Last bar</th><th>Missing</th><th>Max gap (h)</th><th>Problems</th></tr></thead><tbody>
+              <th>币种</th><th>周期</th><th>状态</th><th>行数</th>
+              <th>最新 K 线</th><th>缺失</th><th>最大间隔 (h)</th><th>问题</th></tr></thead><tbody>
             ${d.reports.map(r => `<tr>
               <td>${r.symbol}</td>
               <td class="mute">${r.interval}</td>
-              <td><span class="badge ${status_color(r.status)}">${r.status}</span></td>
+              <td><span class="badge ${statusBadge(r.status)}">${STATUS_CN[r.status] || r.status}</span></td>
               <td class="num">${r.rows}</td>
               <td class="mono dim">${r.last_ts ? r.last_ts.slice(0, 19) : ""}</td>
               <td class="num ${r.missing_bars ? 'warn' : ''}">${r.missing_bars}</td>
@@ -737,14 +1136,13 @@ views.data = async () => {
               <td class="mute">${r.problems || ""}</td>
             </tr>`).join("")}</tbody></table>`}
         </div>
-      </div>
-    `;
+      </div>`;
   } catch (e) {
-    document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
+    document.getElementById("body").innerHTML = emptyState(`加载失败: ${e.message}`);
   }
 };
 
-/* ===== Boot ===== */
+/* ===================== Boot ===================== */
 nav("dashboard");
 </script>
 </body>
