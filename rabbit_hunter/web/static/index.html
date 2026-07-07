@@ -129,6 +129,10 @@
     font-weight: 600; border-bottom: 1px solid var(--border);
   }
   table.data tbody tr:hover { background: rgba(255,255,255,0.02); }
+  table.data tbody tr.selected {
+    background: rgba(88,166,255,0.08);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
   table.data .num { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -419,13 +423,16 @@ function renderTradesTable(rows) {
       <td><span class="badge ${r.side === 'long' ? 'up' : 'down'}">${r.side}</span></td>
       <td class="num ${upDown(r.pnl)}">${fmtPnl(r.pnl)}</td>
       <td class="mute">${r.exit_reason || ""}</td>
-      <td class="num mute">${r.bars_held}</td>
+      <td class="num mute">${r.bars_held == null ? "—" : r.bars_held}</td>
       <td class="mono dim">${fmtTime(r.exit_time_ms).slice(0, 16)}</td>
     </tr>`).join("")}</tbody></table>`;
 }
 
 /* =====================================================
    View: Backtests
+   Selected report is stashed on `window.selectedBacktest` so a 30s
+   auto-refresh doesn't wipe the detail panel — after the list re-renders
+   we re-open the previously-selected report.
    ===================================================== */
 views.backtests = async () => {
   const el = document.getElementById("content");
@@ -436,13 +443,14 @@ views.backtests = async () => {
       document.getElementById("body").innerHTML = `<div class="empty">no reports</div>`;
       return;
     }
+    const sel = window.selectedBacktest;
     document.getElementById("body").innerHTML = `
       <div class="panel">
         <div class="panel-header"><span>Reports</span><span class="count">${list.reports.length}</span></div>
         <div class="panel-body no-pad">
           <table class="data"><thead><tr>
             <th>Name</th><th>Trades</th><th>WR</th><th>PnL</th><th>PF</th><th>Sharpe</th><th>Max DD</th></tr></thead><tbody>
-            ${list.reports.map(r => `<tr onclick="showBacktest('${r.name}')" style="cursor:pointer">
+            ${list.reports.map(r => `<tr onclick="showBacktest('${r.name}')" class="${sel === r.name ? 'selected' : ''}" style="cursor:pointer">
               <td><a class="link">${r.name}</a></td>
               <td class="num">${r.n_trades}</td>
               <td class="num ${r.winrate >= 0.5 ? 'up' : 'down'}">${fmtPct(r.winrate, 1)}</td>
@@ -456,12 +464,20 @@ views.backtests = async () => {
       </div>
       <div id="detail"></div>
     `;
+    // Restore the drill-down if the user had opened one before the refresh
+    if (sel) { showBacktest(sel); }
   } catch (e) {
     document.getElementById("body").innerHTML = `<div class="empty">error: ${e.message}</div>`;
   }
 };
 
 window.showBacktest = async (name) => {
+  window.selectedBacktest = name;
+  // Highlight the currently-selected row without a full re-render
+  document.querySelectorAll("#body table.data tbody tr").forEach(tr => {
+    tr.classList.toggle("selected",
+      tr.querySelector("a.link")?.textContent === name);
+  });
   const detail = document.getElementById("detail");
   detail.innerHTML = `<div class="empty">loading ${name}…</div>`;
   try {

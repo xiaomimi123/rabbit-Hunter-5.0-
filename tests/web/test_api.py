@@ -232,6 +232,28 @@ def test_backtest_detail(app_root, client: TestClient):
     assert len(body["top_trades"]) <= 20
 
 
+def test_backtest_detail_bars_held_null_when_column_missing(app_root, client: TestClient):
+    """Older trades.parquet files predate the bars_held column. The API
+    must surface `bars_held: null` (not omit the field, not error) so
+    the frontend can render "—" instead of "undefined"."""
+    d = app_root / "reports" / "old-run"
+    d.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame({
+        "symbol": ["BTC-USDT-SWAP"] * 5,
+        "side": ["short"] * 5,
+        "pnl_after_fees": [10.0, -5.0, 20.0, -8.0, 3.0],
+        "entry_time": list(range(5)),
+        "exit_time": list(range(5)),
+        "exit_reason": ["tp"] * 5,
+        # no bars_held column — this is the point of the test
+    })
+    df.to_parquet(d / "trades.parquet")
+    body = client.get("/api/backtests/old-run").json()
+    assert body["n_trades"] == 5
+    assert all("bars_held" in t for t in body["top_trades"])
+    assert all(t["bars_held"] is None for t in body["top_trades"])
+
+
 def test_backtest_detail_404(client: TestClient):
     assert client.get("/api/backtests/no-such").status_code == 404
 

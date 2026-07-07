@@ -64,6 +64,14 @@ def get_backtest(request: Request, name: str) -> dict:
     df = df.reindex(df[pnl_col].abs().sort_values(ascending=False).index).head(20)
     top: list[dict] = []
     for _, r in df.iterrows():
+        # Older trades.parquet files predate the bars_held column. Coerce
+        # to None so the frontend renders "—" instead of "undefined".
+        bh_raw = r.get("bars_held") if "bars_held" in df.columns else None
+        try:
+            bars_held = int(bh_raw) if bh_raw is not None \
+                        and not pd.isna(bh_raw) else None
+        except (TypeError, ValueError):
+            bars_held = None
         top.append({
             "symbol": r.get("symbol"),
             "side": r.get("side"),
@@ -71,6 +79,7 @@ def get_backtest(request: Request, name: str) -> dict:
             "exit_reason": r.get("exit_reason"),
             "entry_time_ms": int(r.get("entry_time") or 0),
             "exit_time_ms": int(r.get("exit_time") or 0),
+            "bars_held": bars_held,
         })
     return {
         "name": m.label,
