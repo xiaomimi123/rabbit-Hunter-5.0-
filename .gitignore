@@ -24,3 +24,7 @@ shadows/
 .claude/settings.local.json
 .claude/settings.json
 .claude/*.log
+
+# 3rd-party clones + downloaded model weights (fetch scripts in docs)
+vendor/
+models_kronos/
