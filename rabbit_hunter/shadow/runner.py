@@ -98,6 +98,7 @@ class ShadowRunner:
             composer=app_config.strategy_router.composer,
             strategy_weights=strategy_weights,
             strategies=strategies,
+            regime_rules=app_config.strategy_router.regime_rules,
         )
         self.risk = RiskEngine(app_config.risk)
         self.executor = PaperExecutor(app_config.execution)

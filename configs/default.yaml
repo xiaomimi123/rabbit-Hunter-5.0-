@@ -15,6 +15,14 @@ feature_engine:
 strategy_router:
   composer: max_score
   open_action_threshold: 0.50
+  # v0.1.10 structure-regime gates. Derived from the structure × side
+  # grid on v0.1.3 (220 trades): range-longs were the only net-losing
+  # cell (14 trades, 36% WR, -$112); range-shorts stayed positive
+  # (+$441). Longs are blocked in range; everything else unchanged.
+  regime_rules:
+    range:
+      allow_long: false
+      allow_short: true
   enabled_strategies:
     trend_following:
       weight: 1.0

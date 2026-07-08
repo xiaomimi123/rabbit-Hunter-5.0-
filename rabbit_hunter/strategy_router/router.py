@@ -27,6 +27,7 @@ class StrategyRouter:
         composer: str,
         strategy_weights: dict[str, dict],
         strategies: list[BaseStrategy],
+        regime_rules: dict[str, Any] | None = None,
     ):
         if composer not in _SUPPORTED_COMPOSERS:
             raise NotImplementedError(
@@ -35,6 +36,39 @@ class StrategyRouter:
         self.composer = composer
         self.weights = {name: float(cfg["weight"]) for name, cfg in strategy_weights.items()}
         self.strategies = [s for s in strategies if s.name in self.weights]
+        # Per-structure-regime gates. Values may be pydantic RegimeRule
+        # objects or plain dicts (tests) — normalized at access time in
+        # _apply_regime_rules.
+        self.regime_rules = regime_rules or {}
+
+    def _apply_regime_rules(
+        self, features_row: dict, long_score: float, short_score: float,
+    ) -> tuple[float, float]:
+        """Zero out or scale scores according to the configured rule for
+        the bar's structure_regime. Missing regime key or missing
+        structure_regime feature → no-op (allow everything)."""
+        if not self.regime_rules:
+            return long_score, short_score
+        regime = features_row.get("structure_regime")
+        if regime is None:
+            return long_score, short_score
+        rule = self.regime_rules.get(str(regime))
+        if rule is None:
+            return long_score, short_score
+        # Accept pydantic model or dict
+        allow_long = getattr(rule, "allow_long", None)
+        if allow_long is None and isinstance(rule, dict):
+            allow_long = rule.get("allow_long", True)
+        allow_short = getattr(rule, "allow_short", None)
+        if allow_short is None and isinstance(rule, dict):
+            allow_short = rule.get("allow_short", True)
+        mult = getattr(rule, "score_multiplier", None)
+        if mult is None and isinstance(rule, dict):
+            mult = rule.get("score_multiplier", 1.0)
+        mult = 1.0 if mult is None else float(mult)
+        long_out = long_score * mult if allow_long else 0.0
+        short_out = short_score * mult if allow_short else 0.0
+        return long_out, short_out
 
     def route(
         self,
@@ -60,6 +94,12 @@ class StrategyRouter:
             short_sum = max((outputs[n].short for n in outputs), default=0.0)
         else:
             raise NotImplementedError(f"unhandled composer {self.composer}")
+
+        # Structure-regime gate — e.g. block longs in "range" where the
+        # historical grid shows 36% WR / net loss.
+        long_sum, short_sum = self._apply_regime_rules(
+            features_row, long_sum, short_sum,
+        )
 
         # contributing_strategies = 每个策略的 long 分（用于报告）
         contributing_display = {n: outputs[n].long for n in outputs}

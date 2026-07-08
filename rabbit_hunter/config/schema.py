@@ -24,11 +24,27 @@ class StrategyEntry(BaseModel):
     config_file: str
 
 
+class RegimeRule(BaseModel):
+    """Per-structure-regime trade permissions. Derived from the
+    structure × side performance grid: e.g. range-longs were the only
+    net-losing cell (14 trades, 36% WR, -$112) while range-shorts
+    stayed positive — so 'range' can disallow longs but keep shorts."""
+    model_config = ConfigDict(extra="forbid")
+    allow_long: bool = True
+    allow_short: bool = True
+    # Multiplies the composed score before thresholding — 0.5 halves
+    # conviction in this regime (fewer marginal trades), 1.0 = neutral.
+    score_multiplier: float = Field(ge=0, le=1, default=1.0)
+
+
 class StrategyRouterConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     composer: Literal["weighted_avg", "unanimous", "regime_switch", "max_score"] = "weighted_avg"
     open_action_threshold: float = Field(ge=0, le=1, default=0.5)
     enabled_strategies: dict[str, StrategyEntry]
+    # Keyed by structure_regime value: "uptrend" | "downtrend" | "range".
+    # Missing keys default to allow-everything.
+    regime_rules: dict[str, RegimeRule] = Field(default_factory=dict)
 
 
 class RiskConfig(BaseModel):
