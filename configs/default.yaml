@@ -36,6 +36,11 @@ strategy_router:
 risk:
   risk_per_trade_pct: 0.5
   atr_stop_multiplier: 2.5
+  # stop_mode: structural was A/B tested 2026-07-08 (swing-level stops
+  # +0.25×ATR buffer, clamp [1,4]×ATR): WR +3.9pp / PF +0.08 but
+  # PnL -14% and Sharpe flat → REJECT, ATR mode stays. Capability
+  # remains in RiskEngine for future strategies.
+  stop_mode: atr
   reward_risk_ratio: 2.5
   max_leverage: 3
   daily_max_loss_pct: 3.0

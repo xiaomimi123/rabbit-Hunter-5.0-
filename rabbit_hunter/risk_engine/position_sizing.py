@@ -24,8 +24,16 @@ def compute_order(
     atr_stop_multiplier: float,
     reward_risk_ratio: float,
     max_leverage: float,
+    stop_distance_override: float | None = None,
 ) -> Order:
-    stop_distance = atr_stop_multiplier * atr
+    """Sizing is risk-normalized: size = risk_amount / stop_distance, so a
+    wider stop automatically means a smaller position (same $ risk).
+    `stop_distance_override` lets the caller supply a structural distance
+    (e.g. to the last swing level); None keeps the legacy ATR multiple."""
+    if stop_distance_override is not None and stop_distance_override > 0:
+        stop_distance = stop_distance_override
+    else:
+        stop_distance = atr_stop_multiplier * atr
     if side == "long":
         stop = price - stop_distance
         tp = price + reward_risk_ratio * stop_distance

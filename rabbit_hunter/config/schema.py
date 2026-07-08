@@ -55,6 +55,17 @@ class RiskConfig(BaseModel):
     max_leverage: float = Field(gt=0)
     daily_max_loss_pct: float = Field(gt=0)
     hold_timeout_bars: int = Field(gt=0)
+    # v0.1.11 stop placement mode.
+    #   "atr"        — stop at atr_stop_multiplier × ATR (legacy)
+    #   "structural" — stop just beyond the structure-invalidation level
+    #                  (swing_low_last for longs / swing_high_last for
+    #                  shorts) + a small buffer, clamped to
+    #                  [min, max] × ATR; falls back to ATR mode when the
+    #                  swing level is missing or on the wrong side.
+    stop_mode: Literal["atr", "structural"] = "atr"
+    structural_buffer_atr_mult: float = Field(ge=0, default=0.25)
+    structural_min_atr_mult: float = Field(gt=0, default=1.0)
+    structural_max_atr_mult: float = Field(gt=0, default=4.0)
     # Trailing-stop (v0.2.0-scalp). All three ignored when trailing_enabled=False.
     trailing_enabled: bool = False
     trailing_activation_r: float = Field(gt=0, default=1.0)
