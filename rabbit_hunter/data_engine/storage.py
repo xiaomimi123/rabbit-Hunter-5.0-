@@ -1,7 +1,20 @@
 from __future__ import annotations
+from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 import duckdb
+
+
+# Plausibility bounds. Crypto perpetual markets on OKX predate 2019 by
+# months at earliest; any row with a timestamp before 2019-01-01 is
+# either seed/test data or a fetcher bug. And anything more than a day
+# in the future is a clock-drift artifact. Both classes get dropped
+# before hitting disk so bad rows can never poison the archive.
+_MIN_PLAUSIBLE_MS = int(datetime(2019, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+
+
+def _now_plus_grace_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000) + 86_400_000  # +1 day
 
 
 def _partition_path(root: Path, symbol: str, interval: str, year: int, month: int) -> Path:
@@ -12,6 +25,15 @@ def write_ohlcv(df: pd.DataFrame, root: Path, symbol: str, interval: str) -> lis
     if df.empty:
         return []
     df = df.copy()
+    # Reject rows outside the plausible timestamp window BEFORE we touch
+    # disk. Without this guard, a fetcher that momentarily returned
+    # zero-timestamp seed rows (as happened once with a stub) would
+    # write a year=1970 partition and permanently break gap-detection
+    # in data/health.
+    upper = _now_plus_grace_ms()
+    df = df[(df["timestamp"] >= _MIN_PLAUSIBLE_MS) & (df["timestamp"] <= upper)]
+    if df.empty:
+        return []
     dt = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     df["_year"] = dt.dt.year
     df["_month"] = dt.dt.month
