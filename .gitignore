@@ -19,3 +19,8 @@ shadows/
 .idea/
 *.swp
 .DS_Store
+
+# Claude Code — user-local settings only; skills/ are shared with the team
+.claude/settings.local.json
+.claude/settings.json
+.claude/*.log
