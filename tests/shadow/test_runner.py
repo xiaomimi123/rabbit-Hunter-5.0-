@@ -212,6 +212,97 @@ def test_shadow_runner_fetches_funding_when_enabled(tmp_path):
     mock_bin.assert_called_once()
 
 
+def test_shadow_runner_archives_new_bars(tmp_path):
+    """When a fetch surfaces a bar newer than last_seen_ts, the runner
+    must call write_ohlcv so data/health stays in sync with the live
+    tick — otherwise we get the exact desync the operator reported:
+    shadow sees the 11:00 UTC bar but data/health still shows 3.5 days
+    of staleness."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    archive = tmp_path / "data"
+    r = ShadowRunner(cfg, strategies,
+                     ShadowConfig(state_dir=tmp_path / "s",
+                                    archive_bars=True,
+                                    archive_root=archive))
+    r.last_seen_ts = {"BTC-USDT-SWAP": 0}   # nothing archived yet
+
+    raw_df = pd.DataFrame({
+        "timestamp": [i * 3_600_000 for i in range(250)],
+        "open":  np.linspace(100.0, 120.0, 250),
+        "high":  np.linspace(101.0, 121.0, 250),
+        "low":   np.linspace( 99.0, 119.0, 250),
+        "close": np.linspace(100.5, 120.5, 250),
+        "volume":np.full(250, 100.0),
+    })
+    with patch("rabbit_hunter.shadow.runner.fetch_ohlcv", return_value=raw_df), \
+         patch("rabbit_hunter.shadow.runner.write_ohlcv") as mock_write, \
+         patch("rabbit_hunter.shadow.runner.fetch_funding_rate_history_binance",
+               return_value=pd.DataFrame({"timestamp": [], "funding_rate": []})):
+        r._fetch_recent_features("BTC-USDT-SWAP")
+    # At least once for main interval; may be called twice if confirm
+    # interval differs from main.
+    assert mock_write.call_count >= 1
+    first_call = mock_write.call_args_list[0]
+    assert first_call.args[1] == archive
+    assert first_call.args[2] == "BTC-USDT-SWAP"
+
+
+def test_shadow_runner_skips_archive_when_no_new_bar(tmp_path):
+    """When last_seen_ts is already past the fetched max ts, the
+    runner must NOT rewrite the parquet — an idempotent optimization
+    that keeps I/O flat when nothing changed."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies,
+                     ShadowConfig(state_dir=tmp_path / "s",
+                                    archive_bars=True,
+                                    archive_root=tmp_path / "data"))
+    raw_df = pd.DataFrame({
+        "timestamp": [i * 3_600_000 for i in range(250)],
+        "open":  np.linspace(100.0, 120.0, 250),
+        "high":  np.linspace(101.0, 121.0, 250),
+        "low":   np.linspace( 99.0, 119.0, 250),
+        "close": np.linspace(100.5, 120.5, 250),
+        "volume":np.full(250, 100.0),
+    })
+    # Pretend we've already archived the latest bar (independent of
+    # last_seen_ts — the archive HWM is what gates the write).
+    r._archive_hwm = {"BTC-USDT-SWAP": int(raw_df["timestamp"].max())}
+
+    with patch("rabbit_hunter.shadow.runner.fetch_ohlcv", return_value=raw_df), \
+         patch("rabbit_hunter.shadow.runner.write_ohlcv") as mock_write, \
+         patch("rabbit_hunter.shadow.runner.fetch_funding_rate_history_binance",
+               return_value=pd.DataFrame({"timestamp": [], "funding_rate": []})):
+        r._fetch_recent_features("BTC-USDT-SWAP")
+    mock_write.assert_not_called()
+
+
+def test_shadow_runner_archive_disabled(tmp_path):
+    """archive_bars=False is the opt-out: write_ohlcv is never called
+    regardless of freshness."""
+    cfg = load_config("configs/default.yaml")
+    strategies = [_StubStrategy()]
+    r = ShadowRunner(cfg, strategies,
+                     ShadowConfig(state_dir=tmp_path / "s",
+                                    archive_bars=False))
+    r.last_seen_ts = {"BTC-USDT-SWAP": 0}
+    raw_df = pd.DataFrame({
+        "timestamp": [i * 3_600_000 for i in range(250)],
+        "open":  np.linspace(100.0, 120.0, 250),
+        "high":  np.linspace(101.0, 121.0, 250),
+        "low":   np.linspace( 99.0, 119.0, 250),
+        "close": np.linspace(100.5, 120.5, 250),
+        "volume":np.full(250, 100.0),
+    })
+    with patch("rabbit_hunter.shadow.runner.fetch_ohlcv", return_value=raw_df), \
+         patch("rabbit_hunter.shadow.runner.write_ohlcv") as mock_write, \
+         patch("rabbit_hunter.shadow.runner.fetch_funding_rate_history_binance",
+               return_value=pd.DataFrame({"timestamp": [], "funding_rate": []})):
+        r._fetch_recent_features("BTC-USDT-SWAP")
+    mock_write.assert_not_called()
+
+
 def test_shadow_tick_appends_features_log(tmp_path):
     """Every processed bar appends one row to state/features_log.parquet
     with the tracked feature columns — foundation for

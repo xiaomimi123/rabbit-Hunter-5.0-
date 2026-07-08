@@ -48,6 +48,7 @@ from rabbit_hunter.data_engine.okx_fetcher import (
     fetch_ohlcv, fetch_orderbook_top, fetch_current_funding_rate,
 )
 from rabbit_hunter.data_engine.binance_funding import fetch_funding_rate_history_binance
+from rabbit_hunter.data_engine.storage import write_ohlcv
 from rabbit_hunter.feature_engine.pipeline import build_features
 from rabbit_hunter.observability.logger import get_logger
 from rabbit_hunter.shadow.metrics import ShadowMetrics, AlertThresholds
@@ -68,6 +69,14 @@ class ShadowConfig:
     # strategy uses the funding_rate factor (e.g. funding_weight: 0.0),
     # or when Binance is unreachable and you want cleaner logs.
     fetch_funding: bool = True
+    # Append every fetched bar to data/raw/okx/<symbol>/<interval>/
+    # parquet partitions so magma + shadow share a single freshness
+    # source. When off, data/health continues to reflect only the last
+    # batch `rabbit data fetch`, not the live tick fetch.
+    archive_bars: bool = True
+    # Where to append archived bars. Points at the same tree the
+    # data_engine reads from.
+    archive_root: Path = field(default_factory=lambda: Path("data"))
 
 
 class ShadowRunner:
@@ -114,6 +123,11 @@ class ShadowRunner:
         self.ledger = self._load_ledger()
         self.last_seen_ts = self._load_last_seen_ts()
         self.last_funding_settlement_ts = self._load_funding_settle_ts()
+        # Per-symbol archive high-water-mark. Distinct from last_seen_ts
+        # so a restart correctly triggers a one-time catchup archive
+        # write for any bars we've processed but never persisted
+        # (typical after enabling archive_bars mid-run).
+        self._archive_hwm: dict[str, int] = {}
         # PortfolioRiskEngine wants features_by_symbol; seeded lazily on first tick
         self._portfolio_risk: PortfolioRiskEngine | None = None
         # Latest features by symbol (needed to compute correlations across ticks)
@@ -251,6 +265,28 @@ class ShadowRunner:
             self.log.warning("fetch_ohlcv_too_few_rows", symbol=symbol, n=len(raw))
             return None
 
+        # Incrementally archive fetched bars to disk so data/health
+        # and future backtests always see fresh data — no need for a
+        # separate cron. write_ohlcv already dedupes by timestamp, so
+        # this is idempotent per bar. Only trigger the write when the
+        # fetch surfaced a bar newer than the last one we archived.
+        # Tracked separately from last_seen_ts because after enabling
+        # archive mid-run (or after a code upgrade) we need to catch up
+        # bars that were processed but never persisted — the archive
+        # high-water-mark starts at 0 on process boot, so the first
+        # tick for each symbol always writes.
+        latest_raw_ts = int(raw["timestamp"].max())
+        has_new_bar = (self.shadow_cfg.archive_bars and
+                       latest_raw_ts > self._archive_hwm.get(symbol, 0))
+        if has_new_bar:
+            try:
+                write_ohlcv(raw, self.shadow_cfg.archive_root, symbol,
+                            self.cfg.data.main_interval)
+                self._archive_hwm[symbol] = latest_raw_ts
+            except Exception as e:
+                self.log.warning("archive_write_failed", symbol=symbol,
+                                 error=str(e))
+
         # Confirm timeframe (15m) — best-effort. If missing, features degrade
         # gracefully to no cross-timeframe signal.
         confirm = None
@@ -265,6 +301,16 @@ class ShadowRunner:
                 )
             except Exception as e:
                 self.log.warning("fetch_confirm_failed", symbol=symbol, error=str(e))
+            # Archive confirm too, gated on the same "new bar" check so
+            # a no-op tick stays a no-op end-to-end.
+            if has_new_bar and confirm is not None and not confirm.empty:
+                try:
+                    write_ohlcv(confirm, self.shadow_cfg.archive_root, symbol,
+                                self.cfg.data.confirm_interval)
+                except Exception as e:
+                    self.log.warning("archive_write_failed", symbol=symbol,
+                                     interval=self.cfg.data.confirm_interval,
+                                     error=str(e))
 
         # Funding (best effort — Binance). Skipped when the deployment
         # disables it via ShadowConfig.fetch_funding=False, typically
