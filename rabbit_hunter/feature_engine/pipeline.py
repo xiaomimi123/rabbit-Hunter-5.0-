@@ -69,9 +69,21 @@ def load_or_compute_features(
     force_recompute: bool = False,
 ) -> pd.DataFrame:
     cache = _cache_path(root, symbol, interval, engine_version)
-    if cache.exists() and not force_recompute:
-        return pd.read_parquet(cache)
+    # Raw read is cheap (local parquet via duckdb); the expensive part is
+    # build_features. Always load raw so we can validate cache freshness —
+    # a cache whose newest bar is older than the raw data's newest bar is
+    # stale (new bars were archived since it was written) and must be
+    # recomputed. Without this check an extended backtest silently reuses
+    # last week's features and reports byte-identical results.
     raw = fetch_raw()
+    if cache.exists() and not force_recompute:
+        feats = pd.read_parquet(cache)
+        cache_fresh = (
+            len(feats) > 0 and len(raw) > 0
+            and int(feats["timestamp"].max()) >= int(raw["timestamp"].max())
+        )
+        if cache_fresh:
+            return feats
     confirm = fetch_confirm() if fetch_confirm is not None else None
     feats = build_features(raw, confirm, engine_version=engine_version)
     cache.parent.mkdir(parents=True, exist_ok=True)

@@ -44,25 +44,54 @@ def test_no_lookahead_prefix_matches():
         )
 
 
-def test_cache_hit_returns_same(tmp_path):
+def test_cache_hit_skips_compute(tmp_path, monkeypatch):
+    """Fresh cache (same max timestamp as raw) must skip the expensive
+    build_features call. Note: fetch_raw is ALWAYS called now — it's the
+    cheap freshness probe; compute is what the cache saves."""
     raw = _mk_raw()
-
-    def fetch():
-        return raw
 
     a = load_or_compute_features(
         root=tmp_path, symbol="TEST-SWAP", interval="1H",
-        engine_version="0.1.0", fetch_raw=fetch,
+        engine_version="0.1.0", fetch_raw=lambda: raw,
     )
-    # 第二次调用不应触发 fetch（用异常检测）
-    def fetch_should_not_run():
-        raise AssertionError("cache should have hit")
+    import rabbit_hunter.feature_engine.pipeline as pl
+    def compute_should_not_run(*args, **kwargs):
+        raise AssertionError("cache is fresh — build_features must not run")
+    monkeypatch.setattr(pl, "build_features", compute_should_not_run)
 
     b = load_or_compute_features(
         root=tmp_path, symbol="TEST-SWAP", interval="1H",
-        engine_version="0.1.0", fetch_raw=fetch_should_not_run,
+        engine_version="0.1.0", fetch_raw=lambda: raw,
     )
     pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True), check_dtype=False)
+
+
+def test_cache_stale_when_raw_has_newer_bars(tmp_path):
+    """Regression test for the extended-backtest bug (2026-07-14): a cache
+    written last week must be recomputed when the raw archive has since
+    gained newer bars — otherwise `rabbit backtest --end <later>` silently
+    reuses old features and reports byte-identical results."""
+    raw_old = _mk_raw(n=400)
+
+    a = load_or_compute_features(
+        root=tmp_path, symbol="TEST-SWAP", interval="1H",
+        engine_version="0.1.0", fetch_raw=lambda: raw_old,
+    )
+    assert len(a) == 400
+
+    # A week passes: archive gains 100 more bars
+    raw_new = _mk_raw(n=500)
+    b = load_or_compute_features(
+        root=tmp_path, symbol="TEST-SWAP", interval="1H",
+        engine_version="0.1.0", fetch_raw=lambda: raw_new,
+    )
+    assert len(b) == 500, "stale cache must be recomputed with the new bars"
+    # And the refreshed cache is now the one returned on the next call
+    c = load_or_compute_features(
+        root=tmp_path, symbol="TEST-SWAP", interval="1H",
+        engine_version="0.1.0", fetch_raw=lambda: raw_new,
+    )
+    assert len(c) == 500
 
 
 def test_baseline_snapshot_stable():
